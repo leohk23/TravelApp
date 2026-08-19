@@ -4,54 +4,90 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Travel Planner</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="anonymous">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header>
   <input id="tripName" class="title" aria-label="Trip name">
-  <nav>
-    <button data-tab="plan" class="on">Itinerary</button>
-    <button data-tab="money">Expenses</button>
-  </nav>
   <span id="env" hidden>preview</span>
   <span id="busy" hidden>working…</span>
   <span class="spacer"></span>
-  <button id="exportBtn">Export</button>
-  <label class="btn">Import<input type="file" id="importFile" accept="application/json" hidden></label>
-  <button id="keyBtn">API key</button>
+  <button id="setupBtn" class="primary" title="Guided setup: cities, dates, who's coming">+ Plan a trip</button>
 </header>
 
-<main>
-  <section id="plan">
-    <div id="dayTabs" class="tabs"></div>
+<nav class="ribbon" role="tablist">
+  <button data-tab="itinerary" role="tab">Itinerary<small>flights &amp; stays</small></button>
+  <button data-tab="local" role="tab">Local travel<small>day plans</small></button>
+  <button data-tab="money" role="tab">Expenses<small>who owes what</small></button>
+</nav>
 
+<!-- Shared by Itinerary and Local travel: the day is the trip's spine. -->
+<div class="daystrip" id="daystrip">
+  <div id="dayTabs" class="tabs"></div>
+  <span class="spacer"></span>
+  <label>Date <input type="date" id="dayDate"></label>
+  <button id="delDay" class="danger" title="Delete this day">✕</button>
+</div>
+
+<main>
+
+  <!-- ---------- Itinerary: bookings for the selected day ---------- -->
+  <section id="itinerary" hidden>
+    <div class="pane wide">
+      <p id="noDate" class="hint" hidden>This day has no date set, so every booking is listed. Set a date above to file them by day.</p>
+
+      <div class="group">
+        <h3>Staying <button id="addStay">+ Hotel</button></h3>
+        <ul id="stays"></ul>
+      </div>
+
+      <div class="group">
+        <h3>Getting there <button id="addBooking">+ Flight / train</button></h3>
+        <ul id="transport"></ul>
+      </div>
+
+      <div class="group" id="undatedGroup" hidden>
+        <h3>Not on any day yet</h3>
+        <ul id="undated"></ul>
+      </div>
+
+      <p id="bookTotal" class="total"></p>
+    </div>
+  </section>
+
+  <!-- ---------- Local travel: per-day POIs and transit ---------- -->
+  <section id="local" hidden>
     <div class="cols">
       <div class="pane">
         <div class="daybar">
-          <label>Date <input type="date" id="dayDate"></label>
           <label>Start <input type="time" id="dayStart"></label>
-          <button id="optimise" title="Reorder stops to minimise transit time (first stop stays put)">Optimise</button>
+          <button id="optimise" title="Reorder stops by geographic proximity, then re-look-up the transit">Optimise</button>
           <button id="recalc">Recalculate</button>
-          <span class="spacer"></span>
-          <button id="delDay" class="danger">Delete day</button>
         </div>
 
         <ol id="stops"></ol>
 
-        <div id="poiSearch" class="search">
-          <input id="poiSearchFallback" placeholder="Search a place…" hidden>
+        <div class="search ac">
+          <input id="poiSearch" placeholder="Search a place…" autocomplete="off">
+          <ul id="poiResults" class="ac-list" hidden></ul>
         </div>
         <form id="addPoi" class="search">
-          <textarea id="poiInput" rows="1" placeholder="…or paste addresses, one per line, then Enter"></textarea>
+          <textarea id="poiInput" rows="1" placeholder="…or paste addresses, one per line, then Add"></textarea>
           <button>Add</button>
         </form>
+        <p class="credit">Places from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ·
+          transit from <a href="https://transitous.org">Transitous</a> · no API key, no billing</p>
       </div>
 
       <div id="map"></div>
     </div>
   </section>
 
+  <!-- ---------- Expenses ---------- -->
   <section id="money" hidden>
     <div class="cols">
       <div class="pane">
@@ -70,8 +106,51 @@
       <div id="settle" class="pane"></div>
     </div>
   </section>
+
 </main>
 
+<dialog id="wizard">
+  <div class="wiz-head">
+    <h2 id="wizTitle"></h2>
+    <p id="wizSub"></p>
+  </div>
+
+  <div class="wiz-body" data-step="0">
+    <label>What do you want to call this trip?
+      <input id="wTrip" placeholder="Japan, spring 2026">
+    </label>
+  </div>
+
+  <div class="wiz-body" data-step="1" hidden>
+    <p class="hint">One row per city. Nights decide how many days get created.</p>
+    <div id="wCities"></div>
+    <div><button id="wAddCity" type="button">+ Another city</button></div>
+  </div>
+
+  <div class="wiz-body" data-step="2" hidden>
+    <label>First day of the trip
+      <input type="date" id="wStart">
+    </label>
+    <label>Who is coming? Comma separated.
+      <input id="wWho" placeholder="Me, Alice, Bob">
+    </label>
+    <label>Currency you will mostly spend in
+      <input id="wCur" size="6" placeholder="HKD">
+    </label>
+  </div>
+
+  <div class="wiz-foot">
+    <div class="dots" id="wDots"><i></i><i></i><i></i></div>
+    <span class="spacer"></span>
+    <button id="wCancel" type="button">Cancel</button>
+    <button id="wBack" type="button">Back</button>
+    <button id="wNext" type="button" class="primary">Next</button>
+  </div>
+</dialog>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

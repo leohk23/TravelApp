@@ -1,51 +1,74 @@
 # Travel Planner
 
-Static page. Plan a day's stops, let it work out the buses/trains between them,
-drag to reorder, split the costs. No backend, no build step, no dependencies.
+Plan a trip's flights and hotels, work out the buses and trains between each
+day's stops, drag to reorder, and split the costs with whoever came along.
+
+Static page. No backend, no build step, no npm dependencies — **and no API keys
+or billing account.** Everything runs against free, keyless services.
 
 ## Run it
 
 ```
-python -m http.server 8000     # or: npx serve
+node serve.mjs          # or: node serve.mjs 8080
 ```
 
 Then open http://localhost:8000. A plain `file://` open will not work — ES
-modules need an HTTP origin.
+modules need an HTTP origin. `serve.mjs` is Node stdlib only and is a dev
+convenience, not part of the deployed site.
 
-## Google Maps API key
+## Where the data comes from
 
-Click **API key** in the header and paste one. It is kept in your browser's
-localStorage only; nothing is committed and there is no server to leak it.
+| Need | Service | Cost |
+|---|---|---|
+| Search-as-you-type places | [Photon](https://photon.komoot.io) (komoot, OSM) | free, no key |
+| Resolve a pasted address | [Nominatim](https://nominatim.openstreetmap.org) (OSM) | free, no key, 1 req/sec |
+| Public transport routing | [Transitous](https://transitous.org) (MOTIS) | free, no key |
+| Map tiles | [OpenStreetMap](https://www.openstreetmap.org) | free, no key |
 
-Enable on the key: **Maps JavaScript API**, **Geocoding API**, **Directions
-API**, **Distance Matrix API**, and **Places API (New)** for search-as-you-type.
-Since the site is public, restrict the key by HTTP referrer to your Pages
-domain and `localhost`.
+All four are in [providers.js](providers.js) — that one file is the whole
+integration surface, so swapping in a paid provider later touches nothing else.
+
+Two things worth knowing:
+
+- **Nominatim and Transitous are run by volunteers.** Be a good citizen: the
+  app debounces search, caches routed legs, and throttles bulk geocoding to 1
+  request/second. If this ever grows real traffic, self-host or pay someone.
+- **Transit coverage comes from community-contributed GTFS feeds.** Verified
+  working in Hong Kong, Tokyo, London and Berlin. Somewhere without a feed will
+  show "no public transport found" — that is missing data, not a broken app.
 
 ## Using it
 
-- **Search a place** adds a stop. Or paste a list of addresses, one per line.
-- Drag the ⠿ handle to reorder — transit legs recompute automatically.
-- Edit a stop's name inline; edit the minutes to change how long you stay.
-- **Optimise** reorders the day for the least total transit time, keeping the
-  first stop where it is (your hotel). Up to 10 stops per day.
-- Legs that come back with a fare get a `+` button that files it as an expense.
-- **Expenses**: set the party, add costs, toggle chips for who shares each one.
-  The settle-up panel shows the fewest transfers that square everyone up.
-- **Export / Import** moves a trip between browsers as JSON.
+Three ribbon tabs, with the day tabs shared between the first two.
+
+**Itinerary** — flights, trains, ferries and hotels for the selected day. Hotels
+match every night from check-in to check-out, so you always see where you sleep.
+Each booking holds a confirmation number, cost and notes. `+ expense` files a
+booking's cost into Expenses; `start day here` drops a hotel in as the day's
+first stop.
+
+**Local travel** — search a place to add it, drag the ⠿ handle to reorder, and
+transit legs recompute with real line numbers and stop names. **Optimise**
+reorders by geographic proximity, then re-looks-up the transit. Edit a stop's
+name inline; edit the minutes to change how long you stay.
+
+**Expenses** — set the party, add costs, toggle chips for who shares each one.
+The settle-up panel shows the fewest transfers that square everyone up.
+
+**+ Plan a trip** runs a three-step setup — name, cities with nights each, then
+dates and party — and generates the day tabs for you.
 
 ## Environments
 
 | Branch    | URL                                       |
 |-----------|-------------------------------------------|
-| `main`    | `https://<user>.github.io/<repo>/`         |
-| `preview` | `https://<user>.github.io/<repo>/preview/` |
+| `main`    | `https://leohk23.github.io/TravelApp/`         |
+| `preview` | `https://leohk23.github.io/TravelApp/preview/` |
 
 Push to `preview` to try things; merge to `main` to ship. Both are published by
-[`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push. In
-repo Settings → Pages, set **Source: GitHub Actions**. The preview build shows
-an orange `preview` badge in the header. Preview shares localStorage with prod
-(same origin), so a trip you make in one shows up in the other.
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push. The
+preview build shows an orange `preview` badge in the header, and shares
+localStorage with production since it is the same origin.
 
 ## Tests
 
@@ -53,5 +76,7 @@ an orange `preview` badge in the header. Preview shares localStorage with prod
 node test.mjs
 ```
 
-Covers the settle-up split, the route optimiser and the day schedule — the
-three bits where a bug is silent. CI runs it before deploying.
+Covers the settle-up split, the route optimiser and the day schedule. CI runs it
+before deploying. Note that `providers.js` **cannot** be tested from Node —
+Nominatim and Transitous return 403 to Node's default User-Agent. Verify those
+in a browser.

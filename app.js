@@ -1,189 +1,167 @@
 import { settleUp, optimizeOrder, scheduleDay, fmtTime, fmtDur, pad } from './logic.js';
+import { search, geocode, route, haversine } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const blankDay = () => ({ date: '', start: '09:00', pois: [], legs: [] });
+const blankDay = () => ({ date: '', city: '', start: '09:00', pois: [], legs: [] });
 const blank = () => ({
-  name: 'My trip', currency: 'HKD', members: ['Me'],
-  expenses: [], dayIdx: 0, days: [blankDay()],
+  name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'itinerary',
+  itinerary: [],                  // flights, trains, hotels - the trip skeleton
+  days: [blankDay()], dayIdx: 0,   // per-day local plans
+  expenses: [],
 });
 
-let state = JSON.parse(localStorage.getItem(STORE) || 'null') || blank();
+// Spread over blank() so trips saved by an older version pick up new keys.
+let state = { ...blank(), ...JSON.parse(localStorage.getItem(STORE) || 'null') };
 const save = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
-const ll = p => ({ lat: p.lat, lng: p.lng });
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-/* ---------- Google Maps ---------- */
-let mapsPromise;
-function maps() {
-  if (mapsPromise) return mapsPromise;
-  const key = localStorage.getItem('gmapsKey');
-  if (!key) { askKey(); return Promise.reject(new Error('Add your Google Maps API key first.')); }
-  mapsPromise = new Promise((res, rej) => {
-    window.__gmapsReady = res;
-    const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&callback=__gmapsReady`;
-    s.onerror = () => rej(new Error('Maps failed to load - check the key.'));
-    document.head.appendChild(s);
-  });
-  return mapsPromise;
-}
-
-function askKey() {
-  const k = prompt('Google Maps API key (enable Maps JavaScript, Geocoding, Directions and Distance Matrix APIs):', localStorage.getItem('gmapsKey') || '');
-  if (k) { localStorage.setItem('gmapsKey', k.trim()); location.reload(); }
-}
-
-/** Departure clock for a day. Transit routing wants a future time, so roll forward. */
-function startDate(d) {
-  const [h, mi] = d.start.split(':').map(Number);
-  const t = d.date ? new Date(`${d.date}T${pad(h)}:${pad(mi)}:00`) : new Date();
-  if (!d.date) t.setHours(h, mi, 0, 0);
-  if (t < Date.now()) t.setDate(t.getDate() + 1);
-  return t;
-}
-
-const stepLabel = s => s.travel_mode === 'TRANSIT'
-  ? `${s.transit.line.short_name || s.transit.line.name} (${s.transit.line.vehicle.name}) · ${s.transit.departure_stop.name} → ${s.transit.arrival_stop.name}`
-  : `walk ${s.distance.text}`;
-
-async function geocode(q) {
-  await maps();
-  const { results } = await new google.maps.Geocoder().geocode({ address: q });
-  if (!results.length) throw new Error(`Not found: ${q}`);
-  const g = results[0];
-  return {
-    name: q, address: g.formatted_address, stayMin: 60,
-    lat: g.geometry.location.lat(), lng: g.geometry.location.lng(),
-  };
-}
-
-const addPoi = p => { day().pois.push(p); save(); recalc(); };
-
-/** Search-as-you-type POI picker. Falls back to plain geocoding if Places is off. */
-async function mountSearch() {
-  if (!localStorage.getItem('gmapsKey')) return;
-  const box = $('#poiSearch');
-  try {
-    await maps();
-    const { PlaceAutocompleteElement } = await google.maps.importLibrary('places');
-    const el = new PlaceAutocompleteElement();
-    el.placeholder = 'Search a place…';
-    box.replaceChildren(el);
-    // ponytail: both event names - Google renamed this once already.
-    for (const ev of ['gmp-select', 'gmp-placeselect']) el.addEventListener(ev, async d => {
-      const place = (d.placePrediction || d.place).toPlace?.() ?? d.place;
-      await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] });
-      addPoi({
-        name: place.displayName, address: place.formattedAddress, stayMin: 60,
-        lat: place.location.lat(), lng: place.location.lng(),
-      });
-      el.value = '';
-    });
-  } catch {
-    const el = $('#poiSearchFallback');
-    el.hidden = false;
-    el.onkeydown = async e => {
-      if (e.key !== 'Enter' || !el.value.trim()) return;
-      setBusy(1);
-      try { addPoi(await geocode(el.value.trim())); el.value = ''; } catch (err) { alert(err.message); }
-      setBusy(-1);
-    };
-  }
-}
+const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 let busy = 0;
 const setBusy = n => { busy += n; $('#busy').hidden = busy <= 0; };
 
+/** Departure clock for a day. Timetables differ by weekday, so the date matters. */
+function startDate(d) {
+  const [h, mi] = d.start.split(':').map(Number);
+  const t = d.date ? new Date(`${d.date}T${pad(h)}:${pad(mi)}:00`) : new Date();
+  if (!d.date) t.setHours(h, mi, 0, 0);
+  return t;
+}
+
+/* ---------- routing ---------- */
 async function recalc() {
   const d = day();
   if (d.pois.length < 2) { d.legs = []; save(); return render(); }
   setBusy(1);
   try {
-    await maps();
-    const svc = new google.maps.DirectionsService();
     let t = startDate(d);
     d.legs = [];
     for (let i = 0; i < d.pois.length - 1; i++) {
       t = new Date(t.getTime() + (d.pois[i].stayMin ?? 60) * 60000);
       try {
-        const res = await svc.route({
-          origin: ll(d.pois[i]), destination: ll(d.pois[i + 1]),
-          travelMode: 'TRANSIT', transitOptions: { departureTime: t },
-        });
-        const route = res.routes[0], leg = route.legs[0];
-        d.legs[i] = {
-          seconds: leg.duration.value,
-          summary: leg.steps.map(stepLabel).join('  →  '),
-          fare: route.fare ? { value: route.fare.value, currency: route.fare.currency } : null,
-        };
-        t = new Date(t.getTime() + leg.duration.value * 1000);
-      } catch {
-        d.legs[i] = null; // no transit route - shown as a gap in the timeline
+        const leg = await route(d.pois[i], d.pois[i + 1], t);
+        d.legs[i] = leg;
+        if (leg) t = new Date(t.getTime() + leg.seconds * 1000);
+      } catch (e) {
+        d.legs[i] = null;
+        console.warn('routing failed', e);
       }
+      save();          // keep partial results if a later leg fails
+      renderPlan();
     }
-    save(); render();
-  } catch (e) {
-    alert(e.message);
+    render();
   } finally { setBusy(-1); }
 }
 
+/**
+ * No free transit matrix exists, and an n x n plan sweep would be ~90 requests
+ * against a community server. So order by straight-line distance, then fetch
+ * real transit only for the order we settled on.
+ */
 async function optimize() {
   const d = day();
   if (d.pois.length < 4) return;
-  // ponytail: Distance Matrix caps a client request at 100 elements, so n <= 10 stops.
-  if (d.pois.length > 10) return alert('Optimise handles up to 10 stops a day (API matrix limit). Split the day.');
-  setBusy(1);
-  try {
-    await maps();
-    const pts = d.pois.map(ll);
-    const { rows } = await new google.maps.DistanceMatrixService().getDistanceMatrix({
-      origins: pts, destinations: pts, travelMode: 'TRANSIT',
-      transitOptions: { departureTime: startDate(d) },
-    });
-    const M = rows.map(r => r.elements.map(e => e.status === 'OK' ? e.duration.value : 1e6));
-    d.pois = optimizeOrder(M, true).map(i => d.pois[i]);
-    save();
-  } catch (e) {
-    alert(e.message); setBusy(-1); return;
-  }
-  setBusy(-1);
-  recalc();
+  const M = d.pois.map(a => d.pois.map(b => haversine(a, b)));
+  d.pois = optimizeOrder(M, true).map(i => d.pois[i]);
+  save();
+  await recalc();
 }
 
-/* ---------- map ---------- */
-let map, overlays = [];
-async function drawMap() {
+/* ---------- map (Leaflet + OpenStreetMap tiles) ---------- */
+let map, layer;
+function drawMap() {
   const d = day();
-  if (!d.pois.length || !localStorage.getItem('gmapsKey')) return;
-  await maps();
-  map ||= new google.maps.Map($('#map'), {
-    center: ll(d.pois[0]), zoom: 13, mapTypeControl: false, streetViewControl: false,
-  });
-  overlays.forEach(o => o.setMap(null));
-  // ponytail: legacy Marker + straight polyline. Real route shapes want one
-  // DirectionsRenderer per leg - add that if the straight lines ever mislead.
-  overlays = d.pois.map((p, i) => new google.maps.Marker({
-    map, position: ll(p), label: String(i + 1), title: p.name,
-  }));
-  overlays.push(new google.maps.Polyline({ map, path: d.pois.map(ll), strokeOpacity: 0.6, strokeWeight: 3 }));
-  const b = new google.maps.LatLngBounds();
-  d.pois.forEach(p => b.extend(ll(p)));
-  map.fitBounds(b, 60);
+  if (!map) {
+    map = L.map('map').setView([22.302, 114.17], 11);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · transit <a href="https://transitous.org">Transitous</a>',
+    }).addTo(map);
+  }
+  layer?.remove();
+  if (!d.pois.length) return;
+
+  layer = L.layerGroup(d.pois.map((p, i) => L.marker([p.lat, p.lng], {
+    icon: L.divIcon({ className: 'pin', html: String(i + 1), iconSize: [24, 24] }),
+    title: p.name,
+  }).bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.address || '')}`))).addTo(map);
+  L.polyline(d.pois.map(p => [p.lat, p.lng]), { weight: 3, opacity: 0.6 }).addTo(layer);
+  map.fitBounds(d.pois.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 15 });
 }
 
-/* ---------- rendering ---------- */
-let dragFrom = null;
+/* ---------- place search ---------- */
+const addPoi = p => { day().pois.push(p); save(); recalc(); };
 
+/** Bias search near where you already are that day, else near the day's city. */
+async function biasPoint() {
+  const d = day();
+  if (d.pois.length) return d.pois[d.pois.length - 1];
+  if (d.city && !d.cityPt) {
+    try { const g = await geocode(d.city); d.cityPt = { lat: g.lat, lng: g.lng }; save(); } catch { /* no bias */ }
+  }
+  return d.cityPt || null;
+}
+
+function mountSearch() {
+  const input = $('#poiSearch'), list = $('#poiResults');
+  let timer, abort, hits = [], cursor = -1;
+
+  const hide = () => { list.hidden = true; cursor = -1; };
+  const draw = () => {
+    list.replaceChildren(...hits.map((h, i) => {
+      const li = document.createElement('li');
+      li.className = i === cursor ? 'on' : '';
+      li.innerHTML = `<b>${esc(h.name)}</b><small>${esc([h.kind, h.label].filter(Boolean).join(' · '))}</small>`;
+      li.onmousedown = e => { e.preventDefault(); pick(i); };
+      return li;
+    }));
+    list.hidden = !hits.length;
+  };
+  const pick = i => {
+    const h = hits[i];
+    if (!h) return;
+    addPoi({ name: h.name, address: h.label, lat: h.lat, lng: h.lng, stayMin: 60 });
+    input.value = ''; hits = []; hide();
+  };
+
+  input.oninput = () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { hits = []; return hide(); }
+    timer = setTimeout(async () => {
+      abort?.abort();
+      abort = new AbortController();
+      try {
+        hits = await search(q, await biasPoint(), abort.signal);
+        cursor = -1;
+        draw();
+      } catch (e) {
+        if (e.name !== 'AbortError') { hits = []; hide(); }
+      }
+    }, 300);
+  };
+
+  input.onkeydown = e => {
+    if (list.hidden) return;
+    if (e.key === 'ArrowDown') { cursor = Math.min(cursor + 1, hits.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { cursor = Math.max(cursor - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === 'Enter') { e.preventDefault(); pick(cursor < 0 ? 0 : cursor); }
+    else if (e.key === 'Escape') hide();
+  };
+  input.onblur = () => setTimeout(hide, 120);
+}
+
+/* ---------- day tabs (shared by Itinerary and Local travel) ---------- */
 function renderDays() {
   const tabs = $('#dayTabs');
   tabs.innerHTML = '';
   state.days.forEach((d, i) => {
     const b = document.createElement('button');
     b.className = 'tab' + (i === state.dayIdx ? ' on' : '');
-    b.textContent = `Day ${i + 1}${d.date ? ` · ${d.date.slice(5)}` : ''}`;
+    b.textContent = [`Day ${i + 1}`, d.date && d.date.slice(5), d.city].filter(Boolean).join(' · ');
     b.onclick = () => { state.dayIdx = i; save(); render(); };
     tabs.append(b);
   });
@@ -191,13 +169,169 @@ function renderDays() {
   add.className = 'tab';
   add.textContent = '+';
   add.title = 'Add a day';
-  add.onclick = () => { state.days.push(blankDay()); state.dayIdx = state.days.length - 1; save(); render(); };
+  add.onclick = () => {
+    const prev = state.days[state.days.length - 1];
+    const d = blankDay();
+    if (prev?.date) {
+      const t = new Date(`${prev.date}T00:00`);
+      t.setDate(t.getDate() + 1);
+      d.date = isoDate(t);
+      d.city = prev.city;
+    }
+    state.days.push(d);
+    state.dayIdx = state.days.length - 1;
+    save(); render();
+  };
   tabs.append(add);
+  $('#dayDate').value = day().date;
 }
+
+/* ---------- itinerary: flights, trains, stays ---------- */
+const KINDS = ['Flight', 'Train', 'Bus', 'Ferry', 'Car', 'Hotel', 'Other'];
+const ICON = { Flight: '✈', Train: '🚆', Bus: '🚌', Ferry: '⛴', Car: '🚗', Hotel: '🏨', Other: '📌' };
+const isStay = k => k === 'Hotel';
+const dateOf = dt => (dt || '').slice(0, 10);
+
+// A stay covers every night from check-in through check-out morning.
+const staysOn = (b, d) => isStay(b.kind) && b.start && dateOf(b.start) <= d && d <= dateOf(b.end || b.start);
+const movesOn = (b, d) => !isStay(b.kind) && dateOf(b.start) === d;
+
+const newBooking = (kind, start = '') =>
+  ({ id: crypto.randomUUID(), kind, ref: '', from: '', to: '', start, end: '', conf: '', cost: 0, notes: '' });
+
+/** Nights for a stay; nothing for transport, whose local times cross time zones. */
+function spanLabel(b) {
+  if (!b.start || !b.end || !isStay(b.kind)) return '';
+  const nights = Math.round((new Date(b.end) - new Date(b.start)) / 86400000);
+  return nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : '';
+}
+
+function bookingCard(b) {
+  const stay = isStay(b.kind);
+  const billed = state.expenses.some(e => e.src === b.id);
+  const li = document.createElement('li');
+  li.className = 'booking' + (stay ? ' is-stay' : '');
+  li.dataset.bid = b.id;
+  li.innerHTML = `
+    <div class="brow head">
+      <select class="f-kind" aria-label="Type">${KINDS.map(k =>
+        `<option value="${k}"${k === b.kind ? ' selected' : ''}>${ICON[k]} ${k}</option>`).join('')}</select>
+      <input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="${stay ? 'Hotel name' : 'Flight / service no.'}">
+      <span class="spacer"></span>
+      <button class="bill${billed ? ' on' : ''}"${+b.cost > 0 ? '' : ' disabled'}
+        title="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}">${billed ? '✓ expensed' : '+ expense'}</button>
+      <button class="x" title="Remove">✕</button>
+    </div>
+
+    <div class="brow">
+      <input class="f-from grow" value="${esc(b.from || '')}" placeholder="${stay ? 'Address' : 'From'}">
+      ${stay ? '' : `<span class="arrow">→</span><input class="f-to grow" value="${esc(b.to || '')}" placeholder="To">`}
+      ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button><button class="startday" title="Add as the first stop of this day under Local travel">start day here</button>' : ''}
+    </div>
+
+    <div class="brow">
+      <label>${stay ? 'Check in' : 'Depart'}<input type="datetime-local" class="f-start" value="${esc(b.start || '')}"></label>
+      <label>${stay ? 'Check out' : 'Arrive'}<input type="datetime-local" class="f-end" value="${esc(b.end || '')}"></label>
+      <small class="span">${esc(spanLabel(b))}</small>
+    </div>
+
+    <div class="brow">
+      <label>Booking no.<input class="f-conf" value="${esc(b.conf || '')}" placeholder="confirmation ref"></label>
+      <label>${esc(state.currency)}<input type="number" class="f-cost" step="0.01" min="0" size="8" value="${b.cost || ''}"></label>
+      <input class="f-notes grow" value="${esc(b.notes || '')}" placeholder="Seat, terminal, breakfast included…">
+    </div>`;
+
+  // Plain text fields only save; anything affecting grouping or derived text redraws.
+  const bind = (sel, key, redraw) => {
+    const el = li.querySelector(sel);
+    if (el) el.onchange = e => {
+      b[key] = key === 'cost' ? (+e.target.value || 0) : e.target.value;
+      save();
+      if (redraw) render();
+    };
+  };
+  bind('.f-kind', 'kind', true);
+  bind('.f-ref', 'ref');
+  bind('.f-from', 'from');
+  bind('.f-to', 'to');
+  bind('.f-start', 'start', true);
+  bind('.f-end', 'end', true);
+  bind('.f-conf', 'conf');
+  bind('.f-cost', 'cost', true);
+  bind('.f-notes', 'notes');
+
+  li.querySelector('.x').onclick = () => {
+    if (!confirm(`Remove ${b.ref || b.kind}?`)) return;
+    state.itinerary = state.itinerary.filter(x => x.id !== b.id);
+    state.expenses = state.expenses.filter(e => e.src !== b.id);
+    save(); render();
+  };
+
+  li.querySelector('.bill').onclick = () => {
+    if (billed) state.expenses = state.expenses.filter(e => e.src !== b.id);
+    else state.expenses.push({
+      desc: [b.kind, b.ref, b.from && b.to ? `${b.from} → ${b.to}` : b.from].filter(Boolean).join(' · '),
+      amount: +b.cost, payer: state.members[0], sharedBy: [...state.members], src: b.id,
+    });
+    save(); render();
+  };
+
+  li.querySelector('.mapit')?.addEventListener('click', () => {
+    const q = b.from || b.ref;
+    if (q) window.open(`https://www.openstreetmap.org/search?query=${encodeURIComponent(q)}`, '_blank', 'noopener');
+  });
+
+  li.querySelector('.startday')?.addEventListener('click', async () => {
+    const q = b.from || b.ref;
+    if (!q) return alert('Give the hotel an address first.');
+    setBusy(1);
+    try {
+      const poi = await geocode(q);
+      poi.name = b.ref || poi.name;
+      poi.stayMin = 0;
+      day().pois.unshift(poi);
+      save(); setBusy(-1); showTab('local'); recalc();
+    } catch (err) { alert(err.message); setBusy(-1); }
+  });
+
+  return li;
+}
+
+function renderItinerary() {
+  const d = day().date;
+  state.itinerary.sort((a, b) => (a.start || '~').localeCompare(b.start || '~'));
+
+  // With no date on the day there is nothing to file against, so show everything.
+  const all = !d;
+  $('#noDate').hidden = !all || !state.itinerary.length;
+
+  const stays = state.itinerary.filter(b => all ? isStay(b.kind) : staysOn(b, d));
+  const moves = state.itinerary.filter(b => all ? !isStay(b.kind) : movesOn(b, d));
+  // Anything that lands on no day at all - undated, or dated outside the trip -
+  // would otherwise be invisible from every tab.
+  const onSomeDay = b => state.days.some(x => x.date && (isStay(b.kind) ? staysOn(b, x.date) : movesOn(b, x.date)));
+  const loose = all ? [] : state.itinerary.filter(b => !onSomeDay(b));
+
+  fill('#stays', stays, 'Nowhere booked for this night.');
+  fill('#transport', moves, 'Nothing scheduled to move you on this day.');
+  fill('#undated', loose, '');
+  $('#undatedGroup').hidden = !loose.length;
+
+  const total = state.itinerary.reduce((s, b) => s + (+b.cost || 0), 0);
+  $('#bookTotal').textContent = total ? `Bookings total ${state.currency} ${total.toFixed(2)}` : '';
+
+  function fill(sel, items, emptyMsg) {
+    const ul = $(sel);
+    ul.replaceChildren(...items.map(bookingCard));
+    if (!items.length && emptyMsg) ul.innerHTML = `<li class="empty">${emptyMsg}</li>`;
+  }
+}
+
+/* ---------- local travel ---------- */
+let dragFrom = null;
 
 function renderPlan() {
   const d = day();
-  $('#dayDate').value = d.date;
   $('#dayStart').value = d.start;
   const list = $('#stops');
   list.innerHTML = '';
@@ -235,25 +369,27 @@ function renderPlan() {
     } else {
       const li = document.createElement('li');
       li.className = 'leg' + (row.leg ? '' : ' bad');
-      const fare = row.leg && row.leg.fare;
       li.innerHTML = `
         <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
-        <span class="via">${esc(row.leg ? row.leg.summary : 'no transit found - walk it, or hit Recalculate')}</span>
-        ${fare ? `<button class="fare" title="Add to expenses">${esc(fare.currency)} ${fare.value} +</button>` : ''}`;
-      if (fare) li.querySelector('.fare').onclick = () => {
+        <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
+        <button class="fare" title="Add what this leg cost to Expenses">+ fare</button>`;
+      li.querySelector('.fare').onclick = () => {
+        const v = +prompt(`Fare for this leg, in ${state.currency}:`, '');
+        if (!v) return;
         state.expenses.push({
           desc: `Transit: ${d.pois[row.i].name} → ${d.pois[row.i + 1].name}`,
-          amount: fare.value, payer: state.members[0], sharedBy: [...state.members],
+          amount: v, payer: state.members[0], sharedBy: [...state.members],
         });
-        save(); renderMoney();
+        save(); render();
       };
       list.append(li);
     }
   }
-  if (!d.pois.length) list.innerHTML = '<li class="empty">Add points of interest below, then hit Optimise.</li>';
+  if (!d.pois.length) list.innerHTML = '<li class="empty">Search for a place below to start the day.</li>';
   drawMap();
 }
 
+/* ---------- expenses ---------- */
 function renderMoney() {
   $('#members').value = state.members.join(', ');
   $('#currency').value = state.currency;
@@ -265,7 +401,7 @@ function renderMoney() {
     const li = document.createElement('li');
     li.className = 'expense';
     li.innerHTML = `
-      <div class="what"><b>${esc(e.desc)}</b><small>paid by ${esc(e.payer)}</small></div>
+      <div class="what"><b>${esc(e.desc)}</b><small>paid by ${esc(e.payer)}${e.src ? ' · from Itinerary' : ''}</small></div>
       <div class="amt">${esc(state.currency)} ${(+e.amount).toFixed(2)}</div>
       <div class="chips"></div>
       <button class="x" title="Remove">✕</button>`;
@@ -281,7 +417,7 @@ function renderMoney() {
       };
       chips.append(c);
     });
-    li.querySelector('.x').onclick = () => { state.expenses.splice(i, 1); save(); renderMoney(); };
+    li.querySelector('.x').onclick = () => { state.expenses.splice(i, 1); save(); render(); };
     list.append(li);
   });
   if (!state.expenses.length) list.innerHTML = '<li class="empty">No expenses yet.</li>';
@@ -297,37 +433,169 @@ function renderMoney() {
       : '<li class="empty">All square.</li>'}</ul>`;
 }
 
+/* ---------- shell ---------- */
 function render() {
   $('#tripName').value = state.name;
-  renderDays(); renderPlan(); renderMoney();
+  renderDays(); renderItinerary(); renderPlan(); renderMoney();
 }
+
+function showTab(name) {
+  state.tab = name;
+  for (const b of document.querySelectorAll('[data-tab]')) {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on);
+    $('#' + b.dataset.tab).hidden = !on;
+  }
+  $('#daystrip').hidden = name === 'money';
+  // Leaflet measures 0x0 while its container is hidden.
+  if (name === 'local') setTimeout(() => map?.invalidateSize(), 0);
+  save();
+}
+
+/* ---------- guided setup ---------- */
+const WIZ = [
+  ['Plan a trip', 'Three questions, then you have a skeleton to fill in.'],
+  ['Where are you going?', 'Add a row per city and say how many nights in each.'],
+  ['When, and with whom?', 'Dates fill in the day tabs; the party drives expense splitting.'],
+];
+let wizStep = 0;
+
+function cityRow(name = '', nights = 3) {
+  const div = document.createElement('div');
+  div.className = 'cityrow';
+  div.innerHTML = `
+    <input class="c-name grow" value="${esc(name)}" placeholder="Tokyo">
+    <input class="c-nights" type="number" min="1" max="60" value="${nights}"> nights
+    <button class="x" type="button" title="Remove">✕</button>`;
+  div.querySelector('.x').onclick = () => {
+    if ($('#wCities').children.length > 1) div.remove();
+  };
+  return div;
+}
+
+function wizShow(step) {
+  wizStep = Math.max(0, Math.min(WIZ.length - 1, step));
+  $('#wizTitle').textContent = WIZ[wizStep][0];
+  $('#wizSub').textContent = WIZ[wizStep][1];
+  document.querySelectorAll('.wiz-body').forEach(b => { b.hidden = +b.dataset.step !== wizStep; });
+  $('#wDots').querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === wizStep));
+  $('#wBack').disabled = wizStep === 0;
+  $('#wNext').textContent = wizStep === WIZ.length - 1 ? 'Create trip' : 'Next';
+  $('#wizard').querySelector(`.wiz-body[data-step="${wizStep}"] input`)?.focus();
+}
+
+function openWizard() {
+  $('#wTrip').value = state.name === 'My trip' ? '' : state.name;
+  $('#wCities').replaceChildren(cityRow());
+  $('#wStart').value = day().date || isoDate(new Date());
+  $('#wWho').value = state.members.join(', ');
+  $('#wCur').value = state.currency;
+  wizShow(0);
+  $('#wizard').showModal();
+}
+
+function buildTrip() {
+  const cities = [...$('#wCities').children]
+    .map(r => ({ name: r.querySelector('.c-name').value.trim(), nights: +r.querySelector('.c-nights').value || 1 }))
+    .filter(c => c.name);
+  if (!cities.length) { alert('Add at least one city.'); wizShow(1); return; }
+
+  const start = $('#wStart').value;
+  if (!start) { alert('Pick the first day of the trip.'); return; }
+
+  const hasStops = state.days.some(d => d.pois.length);
+  if (hasStops && !confirm(`This replaces the current ${state.days.length} day(s) and their stops. Bookings and expenses are kept. Continue?`)) return;
+
+  const t = new Date(`${start}T00:00`);
+  const days = [];
+  for (const c of cities) {
+    for (let n = 0; n < c.nights; n++) {
+      const d = blankDay();
+      d.date = isoDate(t);
+      d.city = c.name;
+      days.push(d);
+      t.setDate(t.getDate() + 1);
+    }
+  }
+
+  state.name = $('#wTrip').value.trim() || cities.map(c => c.name).join(' & ');
+  state.members = $('#wWho').value.split(',').map(s => s.trim()).filter(Boolean);
+  if (!state.members.length) state.members = ['Me'];
+  state.currency = $('#wCur').value.trim() || 'HKD';
+  state.days = days;
+  state.dayIdx = 0;
+  save();
+  $('#wizard').close();
+  render();
+  showTab('itinerary');
+}
+
+$('#setupBtn').onclick = openWizard;
+$('#wAddCity').onclick = () => $('#wCities').append(cityRow('', 3));
+$('#wBack').onclick = () => wizShow(wizStep - 1);
+$('#wCancel').onclick = () => $('#wizard').close();
+$('#wNext').onclick = () => (wizStep === WIZ.length - 1 ? buildTrip() : wizShow(wizStep + 1));
+$('#wizard').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); $('#wNext').click(); }
+});
 
 /* ---------- wiring ---------- */
 $('#tripName').oninput = e => { state.name = e.target.value; save(); };
-$('#dayDate').onchange = e => { day().date = e.target.value; save(); recalc(); };
+
+$('#dayDate').onchange = e => {
+  day().date = e.target.value;
+  // Fill blank later days with consecutive dates - saves typing out a long trip.
+  if (day().date) {
+    let t = new Date(`${day().date}T00:00`);
+    for (let i = state.dayIdx + 1; i < state.days.length; i++) {
+      t.setDate(t.getDate() + 1);
+      if (state.days[i].date) t = new Date(`${state.days[i].date}T00:00`);
+      else state.days[i].date = isoDate(t);
+    }
+  }
+  save(); render(); recalc();
+};
 $('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
 $('#delDay').onclick = () => {
-  if (state.days.length < 2 || !confirm(`Delete day ${state.dayIdx + 1}?`)) return;
+  if (state.days.length < 2) return alert('A trip needs at least one day.');
+  if (!confirm(`Delete day ${state.dayIdx + 1}? Its stops are lost; bookings stay in the Itinerary.`)) return;
   state.days.splice(state.dayIdx, 1);
   state.dayIdx = Math.min(state.dayIdx, state.days.length - 1);
   save(); render();
 };
 
+const addBooking = (kind, time) => {
+  const d = day().date;
+  const b = newBooking(kind, d ? `${d}T${time}` : '');
+  if (kind === 'Hotel' && d) {                 // default to one night
+    const t = new Date(`${d}T00:00`);
+    t.setDate(t.getDate() + 1);
+    b.end = `${isoDate(t)}T11:00`;
+  }
+  state.itinerary.push(b);
+  save(); renderItinerary();
+  document.querySelector(`[data-bid="${b.id}"] .f-ref`)?.focus();
+};
+$('#addStay').onclick = () => addBooking('Hotel', '15:00');
+$('#addBooking').onclick = () => addBooking('Flight', '09:00');
+
 $('#addPoi').onsubmit = async e => {
   e.preventDefault();
-  const input = $('#poiInput'), q = input.value.trim();
-  if (!q) return;
+  const input = $('#poiInput');
+  const lines = input.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!lines.length) return;
   setBusy(1);
   try {
-    for (const part of q.split('\n').map(s => s.trim()).filter(Boolean)) {
-      day().pois.push(await geocode(part));
+    for (const [i, q] of lines.entries()) {
+      if (i) await sleep(1100);        // Nominatim allows 1 request per second
+      day().pois.push(await geocode(q));
     }
     input.value = ''; save(); setBusy(-1); recalc();
-  } catch (err) { alert(err.message); setBusy(-1); }
+  } catch (err) { alert(err.message); save(); setBusy(-1); render(); }
 };
 $('#optimise').onclick = optimize;
 $('#recalc').onclick = recalc;
-$('#keyBtn').onclick = askKey;
 
 $('#members').onchange = e => {
   state.members = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
@@ -335,7 +603,7 @@ $('#members').onchange = e => {
   for (const ex of state.expenses) ex.sharedBy = ex.sharedBy.filter(m => state.members.includes(m));
   save(); renderMoney();
 };
-$('#currency').onchange = e => { state.currency = e.target.value.trim() || 'HKD'; save(); renderMoney(); };
+$('#currency').onchange = e => { state.currency = e.target.value.trim() || 'HKD'; save(); render(); };
 $('#addExpense').onsubmit = e => {
   e.preventDefault();
   const desc = $('#exDesc').value.trim(), amount = +$('#exAmount').value;
@@ -345,33 +613,12 @@ $('#addExpense').onsubmit = e => {
   save(); renderMoney();
 };
 
-for (const b of document.querySelectorAll('[data-tab]')) {
-  b.onclick = () => {
-    document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x === b));
-    $('#plan').hidden = b.dataset.tab !== 'plan';
-    $('#money').hidden = b.dataset.tab !== 'money';
-  };
-}
-
-$('#exportBtn').onclick = () => {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }));
-  a.download = `${state.name.replace(/\W+/g, '-')}.json`;
-  a.click();
-};
-$('#importFile').onchange = async e => {
-  const f = e.target.files[0];
-  if (!f) return;
-  try {
-    const next = JSON.parse(await f.text());
-    if (!Array.isArray(next.days)) throw new Error('Not a trip file.');
-    state = { ...blank(), ...next, dayIdx: 0 };
-    save(); render();
-  } catch (err) { alert(err.message); }
-  e.target.value = '';
-};
+for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => showTab(b.dataset.tab);
 
 $('#env').hidden = !location.pathname.includes('/preview/');
 
+const firstRun = !localStorage.getItem(STORE);
 render();
+showTab(state.tab);
 mountSearch();
+if (firstRun) openWizard();
