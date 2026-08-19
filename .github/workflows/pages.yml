@@ -1,0 +1,45 @@
+name: pages
+
+# main   -> https://<user>.github.io/<repo>/
+# preview-> https://<user>.github.io/<repo>/preview/
+# ponytail: no build step, so "deploy" is just copying two branches into one tree.
+on:
+  push:
+    branches: [main, preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Production (main)
+        uses: actions/checkout@v4
+        with: { ref: main, path: _site }
+
+      - name: Preview branch
+        uses: actions/checkout@v4
+        continue-on-error: true   # fine before the preview branch exists
+        with: { ref: preview, path: _site/preview }
+
+      - name: Run tests
+        run: node _site/test.mjs
+
+      - run: rm -rf _site/.git _site/.github _site/preview/.git _site/preview/.github
+
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

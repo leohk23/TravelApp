@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Travel Planner</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <input id="tripName" class="title" aria-label="Trip name">
+  <nav>
+    <button data-tab="plan" class="on">Itinerary</button>
+    <button data-tab="money">Expenses</button>
+  </nav>
+  <span id="env" hidden>preview</span>
+  <span id="busy" hidden>working…</span>
+  <span class="spacer"></span>
+  <button id="exportBtn">Export</button>
+  <label class="btn">Import<input type="file" id="importFile" accept="application/json" hidden></label>
+  <button id="keyBtn">API key</button>
+</header>
+
+<main>
+  <section id="plan">
+    <div id="dayTabs" class="tabs"></div>
+
+    <div class="cols">
+      <div class="pane">
+        <div class="daybar">
+          <label>Date <input type="date" id="dayDate"></label>
+          <label>Start <input type="time" id="dayStart"></label>
+          <button id="optimise" title="Reorder stops to minimise transit time (first stop stays put)">Optimise</button>
+          <button id="recalc">Recalculate</button>
+          <span class="spacer"></span>
+          <button id="delDay" class="danger">Delete day</button>
+        </div>
+
+        <ol id="stops"></ol>
+
+        <div id="poiSearch" class="search">
+          <input id="poiSearchFallback" placeholder="Search a place…" hidden>
+        </div>
+        <form id="addPoi" class="search">
+          <textarea id="poiInput" rows="1" placeholder="…or paste addresses, one per line, then Enter"></textarea>
+          <button>Add</button>
+        </form>
+      </div>
+
+      <div id="map"></div>
+    </div>
+  </section>
+
+  <section id="money" hidden>
+    <div class="cols">
+      <div class="pane">
+        <div class="daybar">
+          <label>Party <input id="members" placeholder="Alice, Bob, Me"></label>
+          <label>Currency <input id="currency" size="4"></label>
+        </div>
+        <form id="addExpense" class="search">
+          <input id="exDesc" placeholder="What for?">
+          <input id="exAmount" type="number" step="0.01" min="0" placeholder="0.00" size="8">
+          <select id="exPayer" aria-label="Paid by"></select>
+          <button>Add</button>
+        </form>
+        <ul id="expenses"></ul>
+      </div>
+      <div id="settle" class="pane"></div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
