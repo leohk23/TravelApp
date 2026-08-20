@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -91,5 +91,14 @@ assert.equal(fmtStay(60), '1h');
 assert.equal(fmtStay(90), '1h 30m');
 assert.equal(fmtStay(0), '', 'no chip for a zero-length stop');
 assert.equal(fmtStay(undefined), '');
+
+// --- spreading cities over the trip ---
+assert.deepEqual(spreadCities(["Tokyo", "Osaka"], 4), ["Tokyo", "Tokyo", "Osaka", "Osaka"]);
+assert.deepEqual(spreadCities(["A", "B", "C"], 8),
+  ["A", "A", "A", "B", "B", "B", "C", "C"], "remainder goes to the earlier cities");
+assert.deepEqual(spreadCities(["Solo"], 3), ["Solo", "Solo", "Solo"]);
+assert.deepEqual(spreadCities(["A", "B", "C"], 2), ["A", "B"], "more cities than days");
+assert.deepEqual(spreadCities([], 2), ["", ""], "no cities still fills the days");
+assert.deepEqual(spreadCities(["A"], 0), []);
 
 console.log('all good');

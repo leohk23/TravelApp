@@ -56,8 +56,10 @@ name inline; edit the minutes to change how long you stay.
 **Expenses** — set the party, add costs, toggle chips for who shares each one.
 The settle-up panel shows the fewest transfers that square everyone up.
 
-**+ Plan a trip** runs a three-step setup — name, cities with nights each, then
-dates and party — and generates the day tabs for you.
+**+ Plan a trip** runs a four-step setup — name, cities, travel dates dragged
+on a calendar, then headcount and currency — and generates the day tabs for you.
+Cities are spread evenly across the dates; adjust the allocation afterwards in
+Trip days, where ↓ applies a city to every following day.
 
 ## Environments
 

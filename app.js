@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, geocode, route, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -956,18 +956,47 @@ function showTab(name) {
 
 /* ---------- guided setup ---------- */
 const WIZ = [
-  ['Plan a trip', 'Three questions, then you have a skeleton to fill in.'],
-  ['Where are you going?', 'Add a row per city and say how many nights in each.'],
-  ['When, and with whom?', 'Dates fill in the day tabs; the party drives expense splitting.'],
+  ['Plan a trip', 'Four questions, then you have a skeleton to fill in.'],
+  ['Where are you going?', 'Add a row per city, in the order you will visit them.'],
+  ['When are you going?', 'Drag across your travel dates, or tap the first and last.'],
+  ['Who is going?', 'Just the headcount for now, and the money you will spend.'],
 ];
 let wizStep = 0;
+let wizRange = null;      // [startISO, endISO] chosen on the wizard calendar
 
-function cityRow(name = '', nights = 3) {
+// Built on first use. The calendar factory lives further down the file, and
+// constructing eagerly here would depend on its helpers being initialised.
+let wizCal = null;
+const getWizCal = () => (wizCal ||= makeCalendar($('#wizCal'), {
+  getRange: () => wizRange,
+  onRange: (s, e) => { wizRange = [s, e]; wizWhen(); },
+  hint: 'Days are created for every date in the range.',
+}));
+
+/** Live readout under the wizard calendar, and how the cities will be split. */
+function wizWhen() {
+  const sub = $('#wizSub');
+  if (wizStep !== 2) return;
+  if (!wizRange) { sub.textContent = WIZ[2][1]; return; }
+  const n = spanDays(...wizRange);
+  const names = wizCityNames();
+  const split = names.length
+    ? spreadCities(names, n).reduce((m, c) => m.set(c, (m.get(c) || 0) + 1), new Map())
+    : null;
+  sub.textContent = split
+    ? `${n} days: ${[...split].map(([c, k]) => `${c} ${k}`).join(', ')}`
+    : `${n} days`;
+}
+
+const wizCityNames = () => [...$('#wCities').children]
+  .map(r => r.querySelector('.c-name').value.trim())
+  .filter(Boolean);
+
+function cityRow(name = '') {
   const div = document.createElement('div');
   div.className = 'cityrow';
   div.innerHTML = `
     <span class="ac grow"><input class="c-name" value="${esc(name)}" placeholder="Search a city…" autocomplete="off"></span>
-    <input class="c-nights" type="number" min="1" max="60" value="${nights}"> nights
     <button class="x" type="button" title="Remove">✕</button>`;
   div.querySelector('.x').onclick = () => {
     if ($('#wCities').children.length > 1) div.remove();
@@ -992,34 +1021,33 @@ function wizShow(step) {
   $('#wDots').querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === wizStep));
   $('#wBack').disabled = wizStep === 0;
   $('#wNext').textContent = wizStep === WIZ.length - 1 ? 'Create trip' : 'Next';
-  $('#wizard').querySelector(`.wiz-body[data-step="${wizStep}"] input`)?.focus();
+  if (wizStep === 2) { getWizCal().focus(wizRange?.[0]); wizWhen(); }
+  else $('#wizard').querySelector(`.wiz-body[data-step="${wizStep}"] input`)?.focus();
 }
 
 function openWizard() {
   $('#wTrip').value = state.name === 'My trip' ? '' : state.name;
   $('#wCities').replaceChildren(cityRow());
-  $('#wStart').value = day().date || isoDate(new Date());
-  $('#wWho').value = state.members.join(', ');
+  wizRange = tripRange();
+  $('#wCount').value = Math.max(1, state.members.length);
   $('#wCur').value = state.currency;
   wizShow(0);
   $('#wizard').showModal();
 }
 
 async function buildTrip() {
-  const cities = [...$('#wCities').children]
-    .map(r => {
-      const el = r.querySelector('.c-name');
-      return {
-        name: el.value.trim(),
-        nights: +r.querySelector('.c-nights').value || 1,
-        pt: el.dataset.lat ? { lat: +el.dataset.lat, lng: +el.dataset.lng } : null,
-      };
-    })
-    .filter(c => c.name);
-  if (!cities.length) { toast('Add at least one city.'); wizShow(1); return; }
+  const rows = [...$('#wCities').children].map(r => {
+    const el = r.querySelector('.c-name');
+    return {
+      name: el.value.trim(),
+      pt: el.dataset.lat ? { lat: +el.dataset.lat, lng: +el.dataset.lng } : null,
+    };
+  }).filter(c => c.name);
 
-  const start = $('#wStart').value;
-  if (!start) { toast('Pick the first day of the trip.'); return; }
+  if (!rows.length) { toast('Add at least one city.'); wizShow(1); return; }
+  if (!wizRange) { toast('Pick your travel dates.'); wizShow(2); return; }
+
+  const n = spanDays(...wizRange);
 
   if (state.days.some(d => d.items.length)) {
     const ok = await ask({
@@ -1030,24 +1058,26 @@ async function buildTrip() {
     if (!ok) return;
   }
 
-  const t = new Date(`${start}T00:00`);
-  const days = [];
-  for (const c of cities) {
-    for (let n = 0; n < c.nights; n++) {
-      const d = blankDay();
-      d.date = isoDate(t);
-      d.city = c.name;
-      if (c.pt) d.cityPt = c.pt;
-      days.push(d);
-      t.setDate(t.getDate() + 1);
-    }
-  }
+  const dates = datesFrom(wizRange[0], n);
+  const perDay = spreadCities(rows.map(c => c.name), n);
+  const ptOf = new Map(rows.map(c => [c.name, c.pt]));
 
-  state.name = $('#wTrip').value.trim() || cities.map(c => c.name).join(' & ');
-  state.members = $('#wWho').value.split(',').map(s => s.trim()).filter(Boolean);
-  if (!state.members.length) state.members = ['Me'];
+  state.days = dates.map((date, i) => {
+    const d = blankDay();
+    d.date = date;
+    d.city = perDay[i] || '';
+    const pt = ptOf.get(d.city);
+    if (pt) d.cityPt = { ...pt };
+    return d;
+  });
+
+  const count = Math.min(20, Math.max(1, +$('#wCount').value || 1));
+  // Placeholder names, renamed on the Expenses tab. "Me" first so the settle-up
+  // reads from your own point of view.
+  state.members = ['Me', ...Array.from({ length: count - 1 }, (_, i) => `Traveller ${i + 2}`)];
+
+  state.name = $('#wTrip').value.trim() || rows.map(c => c.name).join(' and ');
   state.currency = $('#wCur').value.trim() || 'HKD';
-  state.days = days;
   state.dayIdx = 0;
   save();
   $('#wizard').close();
@@ -1056,7 +1086,13 @@ async function buildTrip() {
 }
 
 $('#setupBtn').onclick = openWizard;
-$('#wAddCity').onclick = () => $('#wCities').append(cityRow('', 3));
+$('#wAddCity').onclick = () => $('#wCities').append(cityRow());
+const bumpCount = n => {
+  const el = $('#wCount');
+  el.value = Math.min(20, Math.max(1, (+el.value || 1) + n));
+};
+$('#wLess').onclick = () => bumpCount(-1);
+$('#wMore').onclick = () => bumpCount(1);
 $('#wBack').onclick = () => wizShow(wizStep - 1);
 $('#wCancel').onclick = () => $('#wizard').close();
 $('#wNext').onclick = () => (wizStep === WIZ.length - 1 ? buildTrip() : wizShow(wizStep + 1));

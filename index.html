@@ -172,17 +172,23 @@
   </div>
 
   <div class="wiz-body" data-step="1" hidden>
-    <p class="hint">One row per city. Nights decide how many days get created.</p>
+    <p class="hint">One row per city, in the order you will visit them.</p>
     <div id="wCities"></div>
     <div><button id="wAddCity" type="button">+ Another city</button></div>
   </div>
 
   <div class="wiz-body" data-step="2" hidden>
-    <label>First day of the trip
-      <input type="date" id="wStart">
-    </label>
-    <label>Who is coming? Comma separated.
-      <input id="wWho" placeholder="Me, Alice, Bob">
+    <div id="wizCal"></div>
+  </div>
+
+  <div class="wiz-body" data-step="3" hidden>
+    <label>How many people are going?
+      <div class="counter">
+        <button id="wLess" type="button" aria-label="One fewer">−</button>
+        <input type="number" id="wCount" min="1" max="20" value="1" inputmode="numeric">
+        <button id="wMore" type="button" aria-label="One more">+</button>
+      </div>
+      <small>Names go in later, on the Expenses tab.</small>
     </label>
     <label>Currency you will mostly spend in
       <input id="wCur" size="6" placeholder="HKD">
@@ -190,7 +196,7 @@
   </div>
 
   <div class="wiz-foot">
-    <div class="dots" id="wDots"><i></i><i></i><i></i></div>
+    <div class="dots" id="wDots"><i></i><i></i><i></i><i></i></div>
     <span class="spacer"></span>
     <button id="wCancel" type="button">Cancel</button>
     <button id="wBack" type="button">Back</button>

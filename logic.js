@@ -166,3 +166,23 @@ export function fmtStay(min) {
   if (!h) return `${m}m`;
   return m ? `${h}h ${m}m` : `${h}h`;
 }
+
+/**
+ * Spreads city names across `n` days as evenly as possible, remainder to the
+ * earlier cities. Three cities over eight days gives 3, 3, 2.
+ *
+ * Deliberately blunt: the wizard cannot know you want four nights in Kyoto and
+ * one in Nara, so it makes a fair guess and the Trip days table fixes it.
+ */
+export function spreadCities(cities, n) {
+  if (!cities.length || n <= 0) return Array.from({ length: Math.max(0, n) }, () => '');
+  const base = Math.floor(n / cities.length);
+  let extra = n % cities.length;
+  const out = [];
+  for (const c of cities) {
+    const take = base + (extra > 0 ? 1 : 0);
+    if (extra > 0) extra--;
+    for (let i = 0; i < take; i++) out.push(c);
+  }
+  return out.slice(0, n);
+}

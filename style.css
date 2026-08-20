@@ -737,3 +737,16 @@ main > section { position: relative; }
 .tab .t-d { margin-left: 8px; opacity: .75; font-variant-numeric: tabular-nums; }
 .tab .t-c { margin-left: 8px; opacity: .75; }
 .tab.on .t-d, .tab.on .t-c { opacity: .85; }
+
+/* ---------- headcount stepper ---------- */
+.counter { display: flex; align-items: center; gap: 8px; }
+.counter button {
+  width: 40px; min-height: 40px; padding: 0; border-radius: 50%;
+  font-size: 18px; line-height: 1;
+}
+.counter input {
+  width: 5ch; text-align: center; font-size: 17px; font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+#wizCal { margin-top: -4px; }
+#wizard .cal { padding: 0; }
