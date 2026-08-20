@@ -150,7 +150,10 @@ header {
   display: flex; gap: 10px; align-items: center; flex: 0 0 auto;
   padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line);
 }
-.tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+.tabs {
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  padding: 2px; margin: -2px; flex: 1; min-width: 0; scroll-padding-inline: 8px;
+}
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
   white-space: nowrap; min-height: 34px; padding: 0 13px;
@@ -158,9 +161,10 @@ header {
 }
 .tab.on { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
 .tab.on:hover { background: var(--accent); filter: brightness(1.08); }
-.daystrip label { flex: 0 0 auto; }
-.daystrip input[type=date] { min-height: 34px; padding: 4px 9px; }
-#delDay { min-height: 34px; padding: 0 11px; }
+button.icon {
+  flex: 0 0 auto; min-height: 34px; width: 34px; padding: 0;
+  font-size: 17px; line-height: 1; color: var(--dim);
+}
 
 /* ---------- layout ---------- */
 main { flex: 1; min-height: 0; display: flex; }
@@ -442,3 +446,9 @@ button.danger-solid:hover { background: var(--bad); filter: brightness(1.08); }
 
 /* the phone tab bar sits where toasts land */
 @media (max-width: 820px) { #toasts { bottom: calc(66px + env(safe-area-inset-bottom)); } }
+
+/* ---------- day settings dialog ---------- */
+.dd-actions { padding-top: 0; gap: 8px; }
+.dd-actions button { justify-content: flex-start; }
+#dayDlg .wiz-body label { display: grid; gap: 6px; justify-items: stretch; }
+#dayDlg .wiz-body input { width: 100%; }

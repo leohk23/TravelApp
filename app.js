@@ -255,21 +255,26 @@ function renderDays() {
   add.className = 'tab';
   add.textContent = '+';
   add.title = 'Add a day';
-  add.onclick = () => {
-    const prev = state.days[state.days.length - 1];
-    const d = blankDay();
-    if (prev?.date) {
-      const t = new Date(`${prev.date}T00:00`);
-      t.setDate(t.getDate() + 1);
-      d.date = isoDate(t);
-      d.city = prev.city;
-    }
-    state.days.push(d);
-    state.dayIdx = state.days.length - 1;
-    save(); render();
-  };
+  add.onclick = () => addDayAfter(state.days.length - 1);
   tabs.append(add);
-  $('#dayDate').value = day().date;
+
+  // With a long trip the selected tab can sit off-screen after a re-render.
+  tabs.querySelector('.tab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+/** Inserts a day after `idx`, carrying the date and city forward. */
+function addDayAfter(idx) {
+  const prev = state.days[idx];
+  const d = blankDay();
+  if (prev?.date) {
+    const t = new Date(`${prev.date}T00:00`);
+    t.setDate(t.getDate() + 1);
+    d.date = isoDate(t);
+    d.city = prev.city;
+  }
+  state.days.splice(idx + 1, 0, d);
+  state.dayIdx = idx + 1;
+  save(); render();
 }
 
 /* ---------- itinerary: flights, trains, stays ---------- */
@@ -729,7 +734,21 @@ $('#wizard').addEventListener('keydown', e => {
 /* ---------- wiring ---------- */
 $('#tripName').oninput = e => { state.name = e.target.value; save(); };
 
-$('#dayDate').onchange = e => {
+/* ---------- day settings ---------- */
+function openDayDlg() {
+  $('#ddTitle').textContent = `Day ${state.dayIdx + 1}`;
+  $('#ddDate').value = day().date;
+  $('#ddCity').value = day().city || '';
+  $('#ddDelete').disabled = state.days.length < 2;
+  // showModal() throws on an already-open dialog, and "add a day" reopens it.
+  if (!$('#dayDlg').open) $('#dayDlg').showModal();
+}
+
+$('#dayEdit').onclick = openDayDlg;
+$('#ddDone').onclick = () => $('#dayDlg').close();
+$('#ddAdd').onclick = () => { addDayAfter(state.dayIdx); openDayDlg(); };
+
+$('#ddDate').onchange = e => {
   day().date = e.target.value;
   // Fill blank later days with consecutive dates - saves typing out a long trip.
   if (day().date) {
@@ -742,9 +761,16 @@ $('#dayDate').onchange = e => {
   }
   save(); render(); recalc();
 };
-$('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
-$('#delDay').onclick = async () => {
+
+$('#ddCity').onchange = e => {
+  day().city = e.target.value.trim();
+  delete day().cityPt;          // the cached geocode belonged to the old city
+  save(); render();
+};
+
+$('#ddDelete').onclick = async () => {
   if (state.days.length < 2) return toast('A trip needs at least one day.');
+  $('#dayDlg').close();         // close first: stacked modals fight for focus
   const ok = await ask({
     title: `Delete day ${state.dayIdx + 1}?`,
     body: 'Its stops are lost. Bookings stay in the Itinerary.',
@@ -755,7 +781,7 @@ $('#delDay').onclick = async () => {
   state.dayIdx = Math.min(state.dayIdx, state.days.length - 1);
   save(); render();
 };
-
+$('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
 const addBooking = (kind, time) => {
   const d = day().date;
   const b = newBooking(kind, d ? `${d}T${time}` : '');

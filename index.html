@@ -49,9 +49,7 @@
 <!-- Shared by Itinerary and Local travel: the day is the trip's spine. -->
 <div class="daystrip" id="daystrip">
   <div id="dayTabs" class="tabs"></div>
-  <span class="spacer"></span>
-  <label>Date <input type="date" id="dayDate"></label>
-  <button id="delDay" class="danger" title="Delete this day">✕</button>
+  <button id="dayEdit" class="icon" title="Edit this day: date, city, add or delete">⋯</button>
 </div>
 
 <main>
@@ -183,6 +181,25 @@
     <button id="wCancel" type="button">Cancel</button>
     <button id="wBack" type="button">Back</button>
     <button id="wNext" type="button" class="primary">Next</button>
+  </div>
+</dialog>
+
+<dialog id="dayDlg">
+  <div class="ask-head">
+    <h2 id="ddTitle"></h2>
+    <p>The date drives transit timetables and files your bookings onto this day.</p>
+  </div>
+  <div class="wiz-body">
+    <label>Date<input type="date" id="ddDate"></label>
+    <label>City<input id="ddCity" placeholder="Tokyo" autocomplete="off"></label>
+  </div>
+  <div class="wiz-body dd-actions">
+    <button id="ddAdd" type="button">+ Add a day after this</button>
+    <button id="ddDelete" type="button" class="danger">Delete this day</button>
+  </div>
+  <div class="wiz-foot">
+    <span class="spacer"></span>
+    <button id="ddDone" type="button" class="primary">Done</button>
   </div>
 </dialog>
 

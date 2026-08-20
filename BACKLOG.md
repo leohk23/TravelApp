@@ -52,6 +52,10 @@ Deliberately not built yet. Each line says what would trigger building it.
   map dies, though everything else still works. *Build if you want the site to
   have zero external runtime dependencies.*
 
+- **Shift the whole trip.** Changing a day's date fills later *blank* days but
+  never moves days that already have dates, so a trip that slips by a week has
+  to be re-dated by hand. *Build the first time a booking moves.*
+
 ## Known rough edges
 
 - **Drag-to-reorder does nothing on touch.** HTML5 drag-and-drop has no mobile
