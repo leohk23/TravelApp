@@ -388,9 +388,25 @@ export function estimateFare(table, from, to, steps = [], exact = null) {
     };
   }
 
+  // Japanese rail feeds return no distance at all on a ridden leg. Taking that
+  // as zero km billed every operator its cheapest band and hid long journeys
+  // from the check below, which is how a two-hour trip to Mt Fuji was priced at
+  // a couple of subway rides. Fall back to the endpoints, then to a share of
+  // the journey's straight-line distance weighted by time on board.
+  const knownKm = ridden.reduce((n, s) => n + (s.metres != null ? s.metres / 1000 : 0), 0);
+  const blindSecs = ridden
+    .filter(s => s.metres == null && !(s.fromPt && s.toPt))
+    .reduce((n, s) => n + (s.seconds || 0), 0);
+  const spare = Math.max(0, (to ? kmBetween(from, to) : 0) - knownKm);
+  const legKm = s => {
+    if (s.metres != null) return s.metres / 1000;
+    if (s.fromPt && s.toPt) return kmBetween(s.fromPt, s.toPt);
+    return blindSecs ? spare * ((s.seconds || 0) / blindSecs) : 0;
+  };
+
   // Beyond the urban network the bands mean nothing, and a confidently wrong
   // number is worse than none. Say nothing instead.
-  const spanKm = ridden.reduce((n, s) => n + (s.metres != null ? s.metres / 1000 : 0), 0);
+  const spanKm = ridden.reduce((n, s) => n + legKm(s), 0);
   const urbanKm = city.urbanKm ?? city.radiusKm ?? 40;
   if (spanKm > urbanKm && !exact) return null;
 
@@ -409,7 +425,7 @@ export function estimateFare(table, from, to, steps = [], exact = null) {
   let unmatchedKm = 0;
   let unmatched = false;
   for (const s of rest) {
-    const km = s.metres != null ? s.metres / 1000 : 0;
+    const km = legKm(s);
     const op = operatorFor(city, s.agency);
     if (!op) { unmatched = true; unmatchedKm += km; continue; }
     byOperator.set(op, (byOperator.get(op) || 0) + km);

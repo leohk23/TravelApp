@@ -2,3 +2,8 @@
 # reach the repo or the browser.
 .env
 .env.local
+
+# Trip exports dropped here for debugging. They carry booking confirmation
+# numbers, and this repo is public.
+trip.json
+*.trip.json

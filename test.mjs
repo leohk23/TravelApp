@@ -223,6 +223,34 @@ const longMetro = estimateFare(FARES, TOKYO, null, [
 assert.equal(longMetro.breakdown.length, 1, "same operator, one fare");
 assert.equal(longMetro.amount, 252, "16 km lands in the third band, not two short fares");
 
+// Feeds that report no distance must not price as zero kilometres.
+// Every ridden leg of a real Tokyo journey came back with metres:null, which
+// billed each operator its cheapest band and hid the trip from the range check.
+const SHINJUKU_PT = { lat: 35.6896, lng: 139.7006 };
+const MTFUJI_PT = { lat: 35.4835, lng: 138.7954 };
+const blind = (agency, secs) => ({ mode: "REGIONAL_RAIL", agency, metres: null, seconds: secs });
+
+const noDistance = estimateFare(FARES, SHINJUKU_PT, MTFUJI_PT, [
+  blind("JR東日本 JR East", 3480),
+  blind("JR", 2460),
+]);
+assert.equal(noDistance, null,
+  "an 85 km journey with no leg distances is still too far to price from bands");
+
+// Short urban hops with no distances still price, using time-weighted share
+const shortBlind = estimateFare(FARES, TOKYO, { lat: 35.69, lng: 139.77 }, [
+  blind("東京メトロ Tokyo Metro", 300),
+]);
+assert.ok(shortBlind && shortBlind.amount > 0, "a short hop is still priced");
+
+// Endpoints are used when the feed gives them, in preference to guessing
+const withPoints = estimateFare(FARES, TOKYO, null, [{
+  mode: "SUBWAY", agency: "東京メトロ Tokyo Metro", metres: null, seconds: 600,
+  fromPt: { lat: 35.6812, lng: 139.7671 }, toPt: { lat: 35.6896, lng: 139.7006 },
+}]);
+assert.equal(withPoints.amount, 208,
+  "just over 6 km between the endpoints, so the second band, not the cheapest");
+
 // Long journeys must not be priced with city bands
 const KAWAGUCHIKO = { lat: 35.5008, lng: 138.7566 };
 const SHINJUKU = { lat: 35.6896, lng: 139.7006 };

@@ -18,7 +18,8 @@ const blank = () => ({
 // Spread over blank() so trips saved by an older version pick up new keys.
 let state = { ...blank(), ...JSON.parse(localStorage.getItem(STORE) || 'null') };
 for (const d of state.days) {          // days carried `pois` before free-form items existed
-  if (d.pois && !d.items) { d.items = d.pois; delete d.pois; }
+  if (d.pois && !d.items) d.items = d.pois;
+  delete d.pois;                       // dead once items exists, either way
   d.items ||= [];
   delete d.seeded;                     // replaced by linked hotel-origin items
 }
@@ -92,6 +93,24 @@ function toast(msg, kind = 'bad') {
 let busy = 0;
 const setBusy = n => { busy += n; $('#busy').hidden = busy <= 0; };
 
+/**
+ * When the day's plan can actually begin.
+ *
+ * A day whose flight lands at 14:14 cannot start at 09:00, but that is exactly
+ * what it did: the plan had the traveller leaving the arrival airport five
+ * hours before touchdown.
+ */
+function planStart(d) {
+  if (!d.date) return d.start;
+  const landing = state.itinerary
+    .filter(b => b.kind === 'Flight' && b.end && dateOf(b.end) === d.date)
+    .map(b => timeOf(b.end))
+    .filter(Boolean)
+    .sort()
+    .pop();
+  return landing && landing > d.start ? landing : d.start;
+}
+
 /** Resolve once per labelled city; an unlabelled day follows its first place. */
 async function dayTimeZone(d) {
   if (d.timeZone) return d.timeZone;
@@ -109,7 +128,7 @@ async function dayTimeZone(d) {
 
 /** Departure clock in the destination, never the device's timezone. */
 async function startDate(d) {
-  return zonedDateTime(d.date, d.start, await dayTimeZone(d));
+  return zonedDateTime(d.date, planStart(d), await dayTimeZone(d));
 }
 
 /* ---------- routing ---------- */
@@ -883,7 +902,7 @@ function renderPlan() {
   const ord = new Map();
   d.items.forEach((it, i) => { if (isPlace(it)) ord.set(i, ord.size + 1); });
 
-  for (const row of scheduleDay(d.items, d.legs, d.start)) {
+  for (const row of scheduleDay(d.items, d.legs, planStart(d))) {
     list.append(row.type === 'item' ? itemRow(d, row, ord) : legRow(d, row));
   }
   if (!d.items.length) {
@@ -1269,7 +1288,7 @@ function renderOverview() {
   $('#ovDays').replaceChildren(...state.days.map((d, i) => {
     const stays = state.itinerary.filter(b => isStay(b.kind) && d.date && staysOn(b, d.date));
     const moves = state.itinerary.filter(b => !isStay(b.kind) && d.date && movesOn(b, d.date));
-    const rows = scheduleDay(d.items, d.legs, d.start);
+    const rows = scheduleDay(d.items, d.legs, planStart(d));
     const travel = rows.reduce((s, r) => s + (r.type === 'leg' && r.min ? r.min : 0), 0);
 
     const li = document.createElement('li');
