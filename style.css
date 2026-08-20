@@ -348,3 +348,64 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- overview: the whole trip on one screen ---------- */
+.ov-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+.ov-head h2 { margin: 0; font-size: 22px; letter-spacing: -.015em; }
+.ov-head p { margin: 4px 0 0; color: var(--dim); font-size: 13px; }
+
+.ovday {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow); cursor: pointer;
+  transition: border-color var(--fade), box-shadow var(--fade);
+}
+.ovday:hover { border-color: var(--accent); box-shadow: var(--shadow-lg); }
+.ovday.on { border-color: var(--accent); }
+.ovday header { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 8px; }
+.ovday header b { font-size: 15px; }
+.ovday header span { color: var(--dim); font-size: 13px; }
+.ovday header em {
+  font-style: normal; font-size: 12px; font-weight: 600; color: var(--accent);
+  background: var(--accent-soft); padding: 2px 9px; border-radius: 99px;
+}
+.ovday header small { color: var(--dim); font-size: 12px; }
+
+.ovline { display: flex; gap: 10px; font-size: 13.5px; padding: 3px 0; }
+.ovline .k {
+  flex: 0 0 62px; color: var(--dim); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em; padding-top: 3px;
+}
+.ovline.dim { color: var(--dim); }
+.ovline code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  background: var(--sunk); padding: 1px 6px; border-radius: 4px;
+}
+
+.ovstops { margin-top: 8px; border-left: 2px solid var(--line); padding-left: 12px; margin-left: 4px; }
+.ovstops li { font-size: 13.5px; padding: 2px 0; display: flex; gap: 10px; }
+.ovstops li.note { color: var(--dim); font-style: italic; }
+.ovstops .t { color: var(--dim); font-variant-numeric: tabular-nums; flex: 0 0 5ch; }
+
+/* ---------- free-form day entries ---------- */
+.marker {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 99px;
+  background: var(--accent); color: #fff; font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.stop.note { background: transparent; border-style: dashed; box-shadow: none; }
+.stop.note .marker { background: transparent; color: var(--dim); font-size: 18px; }
+.stop.note .rename { font-weight: 500; font-style: italic; }
+
+/* ---------- print: the overview is the thing worth putting on paper ---------- */
+@media print {
+  header, .ribbon, .daystrip, .ov-head button, #map { display: none !important; }
+  body { height: auto; background: #fff; color: #000; }
+  main > section:not(#overview) { display: none !important; }
+  #overview { display: block !important; }
+  .pane { overflow: visible; padding: 0; max-width: none; }
+  .ovday {
+    box-shadow: none; border: 1px solid #ccc; cursor: default;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .ovday header em { background: none; color: #000; padding: 0; }
+}

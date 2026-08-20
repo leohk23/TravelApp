@@ -45,24 +45,47 @@ export function optimizeOrder(M, pinFirst = true) {
   return p;
 }
 
+/** A day item is a real place only when it carries coordinates. */
+export const isPlace = it => typeof it?.lat === "number" && typeof it?.lng === "number";
+
 /**
- * Walk the day: pois [{stayMin}], legs[i] = {seconds} from poi i to i+1 (null = unknown).
- * Returns interleaved [{type:'poi'|'leg', ...}] with times in minutes-since-midnight.
+ * Consecutive place pairs, skipping free-form items.
+ * [Hotel, "breakfast", Museum] yields one pair: Hotel -> Museum.
+ * Returned as [originIndex, destIndex]; legs are stored under originIndex.
  */
-export function scheduleDay(pois, legs = [], startTime = '09:00') {
-  const [h, mi] = startTime.split(':').map(Number);
+export function placePairs(items) {
+  const out = [];
+  let last = null;
+  items.forEach((it, i) => {
+    if (!isPlace(it)) return;
+    if (last !== null) out.push([last, i]);
+    last = i;
+  });
+  return out;
+}
+
+/**
+ * Walk the day: items may be places (routed between) or free-form entries that
+ * only take up time. legs[originIndex] = { seconds } for the hop leaving that
+ * place. Returns interleaved rows with times in minutes-since-midnight.
+ */
+export function scheduleDay(items, legs = [], startTime = "09:00") {
+  const [h, mi] = startTime.split(":").map(Number);
   let t = h * 60 + mi;
   const out = [];
-  pois.forEach((p, i) => {
-    const stay = p.stayMin ?? 60;
-    out.push({ type: 'poi', i, arrive: t, depart: t + stay });
-    t += stay;
-    if (i < pois.length - 1) {
-      const leg = legs[i] || null;
+  let lastPlace = null;
+
+  items.forEach((it, i) => {
+    if (isPlace(it) && lastPlace !== null) {
+      const leg = legs[lastPlace] || null;
       const min = leg ? Math.round(leg.seconds / 60) : null;
-      out.push({ type: 'leg', i, min, leg });
+      out.push({ type: "leg", from: lastPlace, to: i, min, leg });
       if (min != null) t += min;
     }
+    const stay = it.stayMin ?? 60;
+    out.push({ type: "item", i, arrive: t, depart: t + stay, place: isPlace(it) });
+    t += stay;
+    if (isPlace(it)) lastPlace = i;
   });
   return out;
 }

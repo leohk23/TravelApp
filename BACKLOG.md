@@ -54,6 +54,14 @@ Deliberately not built yet. Each line says what would trigger building it.
 
 ## Known rough edges
 
+- **Drag-to-reorder does nothing on touch.** HTML5 drag-and-drop has no mobile
+  support, and the app is now installable as a phone app. Swapping to Pointer
+  Events is contained to `itemRow()`. *Build the first time you try to plan on
+  a phone.*
+- **The only copy of your data is one browser localStorage.** Export/Import is
+  parked (above), so clearing site data or losing the device loses every
+  confirmation number. Deliberate for now, deliberately recorded here.
+
 - Transit coverage depends on community GTFS feeds. Verified in Hong Kong,
   Tokyo, London and Berlin. Elsewhere you may get "no public transport found",
   which is missing data rather than a bug.

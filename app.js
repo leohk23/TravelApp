@@ -1,13 +1,13 @@
-import { settleUp, optimizeOrder, scheduleDay, fmtTime, fmtDur, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, fmtTime, fmtDur, pad } from './logic.js';
 import { search, geocode, route, haversine } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const blankDay = () => ({ date: '', city: '', start: '09:00', pois: [], legs: [] });
+const blankDay = () => ({ date: '', city: '', start: '09:00', items: [], legs: [] });
 const blank = () => ({
-  name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'itinerary',
+  name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day local plans
   expenses: [],
@@ -15,6 +15,10 @@ const blank = () => ({
 
 // Spread over blank() so trips saved by an older version pick up new keys.
 let state = { ...blank(), ...JSON.parse(localStorage.getItem(STORE) || 'null') };
+for (const d of state.days) {          // days carried `pois` before free-form items existed
+  if (d.items && !d.items) { d.items = d.items; delete d.items; }
+  d.items ||= [];
+}
 const save = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -34,15 +38,15 @@ function startDate(d) {
 /* ---------- routing ---------- */
 async function recalc() {
   const d = day();
-  if (d.pois.length < 2) { d.legs = []; save(); return render(); }
+  if (d.items.length < 2) { d.legs = []; save(); return render(); }
   setBusy(1);
   try {
     let t = startDate(d);
     d.legs = [];
-    for (let i = 0; i < d.pois.length - 1; i++) {
-      t = new Date(t.getTime() + (d.pois[i].stayMin ?? 60) * 60000);
+    for (let i = 0; i < d.items.length - 1; i++) {
+      t = new Date(t.getTime() + (d.items[i].stayMin ?? 60) * 60000);
       try {
-        const leg = await route(d.pois[i], d.pois[i + 1], t);
+        const leg = await route(d.items[i], d.items[i + 1], t);
         d.legs[i] = leg;
         if (leg) t = new Date(t.getTime() + leg.seconds * 1000);
       } catch (e) {
@@ -63,9 +67,12 @@ async function recalc() {
  */
 async function optimize() {
   const d = day();
-  if (d.pois.length < 4) return;
-  const M = d.pois.map(a => d.pois.map(b => haversine(a, b)));
-  d.pois = optimizeOrder(M, true).map(i => d.pois[i]);
+  const slots = d.items.map((it, i) => (isPlace(it) ? i : -1)).filter(i => i >= 0);
+  if (slots.length < 4) return;
+  const places = slots.map(i => d.items[i]);
+  const M = places.map(a => places.map(b => haversine(a, b)));
+  // Free-form items keep their positions; only the places shuffle between slots.
+  optimizeOrder(M, true).forEach((src, k) => { d.items[slots[k]] = places[src]; });
   save();
   await recalc();
 }
@@ -74,6 +81,7 @@ async function optimize() {
 let map, layer;
 function drawMap() {
   const d = day();
+  if (typeof L === "undefined") return;   // CDN blocked; the rest of the app still works
   if (!map) {
     map = L.map('map').setView([22.302, 114.17], 11);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -82,23 +90,25 @@ function drawMap() {
     }).addTo(map);
   }
   layer?.remove();
-  if (!d.pois.length) return;
+  const places = d.items.filter(isPlace);
+  if (!places.length) return;
 
-  layer = L.layerGroup(d.pois.map((p, i) => L.marker([p.lat, p.lng], {
+  layer = L.layerGroup(places.map((p, i) => L.marker([p.lat, p.lng], {
     icon: L.divIcon({ className: 'pin', html: String(i + 1), iconSize: [24, 24] }),
     title: p.name,
   }).bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.address || '')}`))).addTo(map);
-  L.polyline(d.pois.map(p => [p.lat, p.lng]), { weight: 3, opacity: 0.6 }).addTo(layer);
-  map.fitBounds(d.pois.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 15 });
+  L.polyline(places.map(p => [p.lat, p.lng]), { weight: 3, opacity: 0.6 }).addTo(layer);
+  map.fitBounds(places.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 15 });
 }
 
 /* ---------- place search ---------- */
-const addPoi = p => { day().pois.push(p); save(); recalc(); };
+const addPoi = p => { day().items.push(p); save(); recalc(); };
 
 /** Bias search near where you already are that day, else near the day's city. */
 async function biasPoint() {
   const d = day();
-  if (d.pois.length) return d.pois[d.pois.length - 1];
+  const places = d.items.filter(isPlace);
+  if (places.length) return places[places.length - 1];
   if (d.city && !d.cityPt) {
     try { const g = await geocode(d.city); d.cityPt = { lat: g.lat, lng: g.lng }; save(); } catch { /* no bias */ }
   }
@@ -289,7 +299,7 @@ function bookingCard(b) {
       const poi = await geocode(q);
       poi.name = b.ref || poi.name;
       poi.stayMin = 0;
-      day().pois.unshift(poi);
+      day().items.unshift(poi);
       save(); setBusy(-1); showTab('local'); recalc();
     } catch (err) { alert(err.message); setBusy(-1); }
   });
@@ -336,57 +346,70 @@ function renderPlan() {
   const list = $('#stops');
   list.innerHTML = '';
 
-  for (const row of scheduleDay(d.pois, d.legs, d.start)) {
-    if (row.type === 'poi') {
-      const p = d.pois[row.i];
-      const li = document.createElement('li');
-      li.className = 'stop';
-      li.innerHTML = `
-        <div class="grip" title="Drag to reorder">⠿</div>
-        <div class="when">${fmtTime(row.arrive)}<small>${fmtTime(row.depart)}</small></div>
-        <div class="what">
-          <input class="rename" value="${esc(p.name)}" aria-label="Stop name">
-          <small>${esc(p.address || '')}</small>
-        </div>
-        <label class="stay"><input class="stay-in" type="number" min="0" step="15" value="${p.stayMin ?? 60}">min</label>
-        <button class="x" title="Remove">✕</button>`;
-      li.querySelector('.rename').onchange = e => { p.name = e.target.value.trim() || p.name; save(); render(); };
-      li.querySelector('.stay-in').onchange = e => { p.stayMin = +e.target.value; save(); recalc(); };
-      li.querySelector('.x').onclick = () => { d.pois.splice(row.i, 1); save(); recalc(); };
-      // draggable only from the grip, so the name field stays selectable
-      li.querySelector('.grip').onmousedown = () => { li.draggable = true; };
-      li.ondragstart = e => { dragFrom = row.i; e.dataTransfer.effectAllowed = 'move'; li.classList.add('dragging'); };
-      li.ondragend = () => { li.draggable = false; li.classList.remove('dragging'); };
-      li.ondragover = e => { e.preventDefault(); li.classList.add('over'); };
-      li.ondragleave = () => li.classList.remove('over');
-      li.ondrop = e => {
-        e.preventDefault(); li.classList.remove('over');
-        if (dragFrom === null || dragFrom === row.i) return;
-        d.pois.splice(row.i, 0, ...d.pois.splice(dragFrom, 1));
-        dragFrom = null; save(); recalc();
-      };
-      list.append(li);
-    } else {
-      const li = document.createElement('li');
-      li.className = 'leg' + (row.leg ? '' : ' bad');
-      li.innerHTML = `
-        <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
-        <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
-        <button class="fare" title="Add what this leg cost to Expenses">+ fare</button>`;
-      li.querySelector('.fare').onclick = () => {
-        const v = +prompt(`Fare for this leg, in ${state.currency}:`, '');
-        if (!v) return;
-        state.expenses.push({
-          desc: `Transit: ${d.pois[row.i].name} → ${d.pois[row.i + 1].name}`,
-          amount: v, payer: state.members[0], sharedBy: [...state.members],
-        });
-        save(); render();
-      };
-      list.append(li);
-    }
+  // Places are numbered to match the map pins; free-form items are not.
+  const ord = new Map();
+  d.items.forEach((it, i) => { if (isPlace(it)) ord.set(i, ord.size + 1); });
+
+  for (const row of scheduleDay(d.items, d.legs, d.start)) {
+    list.append(row.type === 'item' ? itemRow(d, row, ord) : legRow(d, row));
   }
-  if (!d.pois.length) list.innerHTML = '<li class="empty">Search for a place below to start the day.</li>';
+  if (!d.items.length) {
+    list.innerHTML = '<li class="empty">Search for a place, or add a free-form entry like "breakfast" or "buy JR pass".</li>';
+  }
   drawMap();
+}
+
+function itemRow(d, row, ord) {
+  const it = d.items[row.i];
+  const li = document.createElement('li');
+  li.className = 'stop' + (row.place ? '' : ' note');
+  li.innerHTML = `
+    <div class="grip" title="Drag to reorder">⠿</div>
+    <div class="marker">${row.place ? ord.get(row.i) : '•'}</div>
+    <div class="when">${fmtTime(row.arrive)}<small>${fmtTime(row.depart)}</small></div>
+    <div class="what">
+      <input class="rename" value="${esc(it.name || '')}" aria-label="Name"
+             placeholder="${row.place ? 'Stop name' : 'What are you doing?'}">
+      ${row.place ? `<small>${esc(it.address || '')}</small>` : ''}
+    </div>
+    <label class="stay"><input class="stay-in" type="number" min="0" step="15" value="${it.stayMin ?? 60}">min</label>
+    <button class="x" title="Remove">✕</button>`;
+
+  li.querySelector('.rename').onchange = e => { it.name = e.target.value.trim(); save(); render(); };
+  li.querySelector('.stay-in').onchange = e => { it.stayMin = +e.target.value; save(); recalc(); };
+  li.querySelector('.x').onclick = () => { d.items.splice(row.i, 1); save(); recalc(); };
+  // draggable only from the grip, so the name field stays selectable
+  li.querySelector('.grip').onmousedown = () => { li.draggable = true; };
+  li.ondragstart = e => { dragFrom = row.i; e.dataTransfer.effectAllowed = 'move'; li.classList.add('dragging'); };
+  li.ondragend = () => { li.draggable = false; li.classList.remove('dragging'); };
+  li.ondragover = e => { e.preventDefault(); li.classList.add('over'); };
+  li.ondragleave = () => li.classList.remove('over');
+  li.ondrop = e => {
+    e.preventDefault(); li.classList.remove('over');
+    if (dragFrom === null || dragFrom === row.i) return;
+    d.items.splice(row.i, 0, ...d.items.splice(dragFrom, 1));
+    dragFrom = null; save(); recalc();
+  };
+  return li;
+}
+
+function legRow(d, row) {
+  const li = document.createElement('li');
+  li.className = 'leg' + (row.leg ? '' : ' bad');
+  li.innerHTML = `
+    <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
+    <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
+    <button class="fare" title="Add what this leg cost to Expenses">+ fare</button>`;
+  li.querySelector('.fare').onclick = () => {
+    const v = +prompt(`Fare for this leg, in ${state.currency}:`, '');
+    if (!v) return;
+    state.expenses.push({
+      desc: `Transit: ${d.items[row.from].name} → ${d.items[row.to].name}`,
+      amount: v, payer: state.members[0], sharedBy: [...state.members],
+    });
+    save(); render();
+  };
+  return li;
 }
 
 /* ---------- expenses ---------- */
@@ -433,10 +456,62 @@ function renderMoney() {
       : '<li class="empty">All square.</li>'}</ul>`;
 }
 
+/* ---------- overview: the whole trip on one screen ---------- */
+const wkday = iso => iso
+  ? new Date(`${iso}T00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  : 'no date';
+
+function renderOverview() {
+  const dated = state.days.filter(d => d.date).map(d => d.date).sort();
+  $('#ovTitle').textContent = state.name;
+  $('#ovMeta').textContent = [
+    `${state.days.length} day${state.days.length > 1 ? 's' : ''}`,
+    dated.length ? `${wkday(dated[0])} – ${wkday(dated[dated.length - 1])}` : null,
+    [...new Set(state.days.map(d => d.city).filter(Boolean))].join(' · ') || null,
+    state.members.join(', '),
+  ].filter(Boolean).join('  ·  ');
+
+  $('#ovDays').replaceChildren(...state.days.map((d, i) => {
+    const stays = state.itinerary.filter(b => isStay(b.kind) && d.date && staysOn(b, d.date));
+    const moves = state.itinerary.filter(b => !isStay(b.kind) && d.date && movesOn(b, d.date));
+    const rows = scheduleDay(d.items, d.legs, d.start);
+    const travel = rows.reduce((s, r) => s + (r.type === 'leg' && r.min ? r.min : 0), 0);
+
+    const li = document.createElement('li');
+    li.className = 'ovday' + (i === state.dayIdx ? ' on' : '');
+    li.innerHTML = `
+      <header>
+        <b>Day ${i + 1}</b>
+        <span>${esc(wkday(d.date))}</span>
+        ${d.city ? `<em>${esc(d.city)}</em>` : ''}
+        <span class="spacer"></span>
+        ${travel ? `<small>${fmtDur(travel * 60)} travelling</small>` : ''}
+      </header>
+
+      ${stays.length ? `<div class="ovline"><span class="k">Staying</span><span>${stays.map(b =>
+        `${esc(b.ref || 'Hotel')}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}${b.from ? ` — ${esc(b.from)}` : ''}`
+      ).join('<br>')}</span></div>` : ''}
+
+      ${moves.length ? `<div class="ovline"><span class="k">Moving</span><span>${moves.map(b =>
+        `${ICON[b.kind] || ''} ${esc(b.ref || b.kind)}${b.from || b.to ? ` ${esc(b.from)} → ${esc(b.to)}` : ''}${
+          b.start ? ` at ${esc(b.start.slice(11, 16))}` : ''}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
+      ).join('<br>')}</span></div>` : ''}
+
+      ${d.items.length ? `<ol class="ovstops">${rows.filter(r => r.type === 'item').map(r => `
+        <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span>${esc(d.items[r.i].name || '—')}</li>`
+      ).join('')}</ol>` : '<div class="ovline dim">Nothing planned yet</div>'}`;
+
+    li.onclick = () => { state.dayIdx = i; save(); render(); showTab('local'); };
+    return li;
+  }));
+
+  if (!state.days.length) $('#ovDays').innerHTML = '<li class="empty">No days yet. Hit “+ Plan a trip”.</li>';
+}
+
 /* ---------- shell ---------- */
 function render() {
   $('#tripName').value = state.name;
-  renderDays(); renderItinerary(); renderPlan(); renderMoney();
+  renderDays(); renderOverview(); renderItinerary(); renderPlan(); renderMoney();
 }
 
 function showTab(name) {
@@ -447,7 +522,7 @@ function showTab(name) {
     b.setAttribute('aria-selected', on);
     $('#' + b.dataset.tab).hidden = !on;
   }
-  $('#daystrip').hidden = name === 'money';
+  $('#daystrip').hidden = name === 'money' || name === 'overview';
   // Leaflet measures 0x0 while its container is hidden.
   if (name === 'local') setTimeout(() => map?.invalidateSize(), 0);
   save();
@@ -504,7 +579,7 @@ function buildTrip() {
   const start = $('#wStart').value;
   if (!start) { alert('Pick the first day of the trip.'); return; }
 
-  const hasStops = state.days.some(d => d.pois.length);
+  const hasStops = state.days.some(d => d.items.length);
   if (hasStops && !confirm(`This replaces the current ${state.days.length} day(s) and their stops. Bookings and expenses are kept. Continue?`)) return;
 
   const t = new Date(`${start}T00:00`);
@@ -589,11 +664,18 @@ $('#addPoi').onsubmit = async e => {
   try {
     for (const [i, q] of lines.entries()) {
       if (i) await sleep(1100);        // Nominatim allows 1 request per second
-      day().pois.push(await geocode(q));
+      day().items.push(await geocode(q));
     }
     input.value = ''; save(); setBusy(-1); recalc();
   } catch (err) { alert(err.message); save(); setBusy(-1); render(); }
 };
+$('#addNote').onclick = () => {
+  day().items.push({ name: '', stayMin: 30 });   // no coords, so never routed
+  save(); renderPlan();
+  const notes = document.querySelectorAll('#stops .stop.note .rename');
+  notes[notes.length - 1]?.focus();
+};
+$('#printBtn').onclick = () => window.print();
 $('#optimise').onclick = optimize;
 $('#recalc').onclick = recalc;
 

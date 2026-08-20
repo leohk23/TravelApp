@@ -1,9 +1,21 @@
 # CLAUDE.md
 
-Travel planner: flights and hotels per day, real transit between each day's
-stops, drag to reorder, plus expense splitting. Wanderlog is the reference for
-feel. Runs entirely on free keyless services — see below before adding anything
-that needs a paid API.
+## What this is for
+
+Three goals. Everything else is secondary; check work against these before
+building it.
+
+1. **Replace the Excel trip-planning template.** Same job a spreadsheet does -
+   lay out a trip day by day - but graphical and not bound to typing into
+   cells. The thing a spreadsheet cannot do is look up how to actually get
+   between two places, which is why transit routing is core rather than a
+   flourish.
+2. **One place to retrieve flight and hotel booking details.** Confirmation
+   numbers, times, addresses. Retrieval matters more than entry: the app is
+   opened at an airport counter, not at a desk.
+3. **Track travel expenses and split them across the party.**
+
+Wanderlog is the reference for feel.
 
 ## Shape
 
@@ -52,16 +64,24 @@ One object in `localStorage['travelapp']`, written by `save()`:
   days: [{
     date, city, start,                       // "2026-04-02", "Tokyo", "09:00"
     cityPt,                                  // cached geocode of city, for search bias
-    pois: [{ name, address, lat, lng, stayMin }],
-    legs: [ { seconds, summary, transfers, arrival } | null ],  // legs[i]: pois[i] -> pois[i+1]
+    items: [{ name, address?, lat?, lng?, stayMin }],  // no lat/lng = free-form entry
+    legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id
 }
 ```
 
+A day item is a **place** only when it carries coordinates. Without them it is a
+free-form entry — "breakfast", "buy JR pass" — that occupies `stayMin` on the
+timeline but is never routed to or from. `placePairs()` skips them, so a note
+sitting between two stops does not break the leg between those stops.
+
 `legs` is derived — `recalc()` rebuilds it — but persisted so a reload does not
-re-hit the routing service. `legs[i] === null` means nothing runs between those
-two stops.
+re-hit the routing service. It is keyed by the **origin item index**, not by
+position, and is sparse. `legs[i] === null` means nothing runs between those two
+places.
+
+Days used to store `pois`; the loader migrates that to `items` on read.
 
 `expenses[].src` links an expense back to the booking that generated it, so the
 `+ expense` toggle can add and remove exactly one entry without double-counting.
