@@ -429,18 +429,37 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
   const hide = () => {
     list.hidden = true;
     cursor = -1;
-    removeEventListener('scroll', hide, true);
+    removeEventListener('scroll', onScroll, true);
+    removeEventListener('resize', onScroll);
+  };
+
+  // A phone scrolls a little whenever the keyboard opens or a tap drifts, and
+  // closing on any scroll made the list look like it vanished at random. Follow
+  // the field instead, and only give up once the field itself is off screen.
+  const onScroll = () => {
+    if (list.hidden) return;
+    const r = input.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > innerHeight) hide();
+    else place();
   };
   const draw = () => {
     list.replaceChildren(...hits.map((h, i) => {
       const li = document.createElement('li');
       li.className = i === cursor ? 'on' : '';
       li.innerHTML = `<b>${esc(h.name)}</b>${h.kind ? `<span class="ac-kind">${esc(h.kind)}</span>` : ''}${h.label ? `<small>${esc(h.label)}</small>` : ''}`;
-      li.onmousedown = e => { e.preventDefault(); pick(i); };
+      // Keeps focus in the field, so choosing never races the blur handler.
+      // Safe to swallow the gesture because the list is capped to six and does
+      // not need dragging to scroll.
+      li.addEventListener('pointerdown', e => e.preventDefault());
+      li.addEventListener('click', () => pick(i));
       return li;
     }));
     // Position and re-parent before revealing, so it never paints at a stale spot.
-    if (hits.length) { place(); addEventListener('scroll', hide, true); }
+    if (hits.length) {
+      place();
+      addEventListener('scroll', onScroll, true);
+      addEventListener('resize', onScroll);
+    }
     list.hidden = !hits.length;
   };
   const pick = i => {
@@ -459,9 +478,10 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
       abort?.abort();
       abort = new AbortController();
       try {
-        hits = find
+        hits = (find
           ? await find(q, abort.signal)
-          : await search(q, { near: await bias?.(), tags }, abort.signal);
+          : await search(q, { near: await bias?.(), tags }, abort.signal)
+        ).slice(0, 6);   // fits without scrolling, see the pointerdown note above
         cursor = -1;
         draw();
       } catch (e) {
