@@ -9,6 +9,7 @@ const root = import.meta.dirname;
 const TYPE = {
   '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
   '.mjs': 'text/javascript', '.json': 'application/json', '.md': 'text/plain',
+  '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml',
 };
 
 createServer(async (req, res) => {

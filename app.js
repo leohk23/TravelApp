@@ -617,6 +617,13 @@ for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => showT
 
 $('#env').hidden = !location.pathname.includes('/preview/');
 
+// Installs the app shell so it opens instantly and works with no signal.
+// file:// has no service workers, so this quietly does nothing there.
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(err =>
+    console.warn("service worker not registered:", err.message)));
+}
+
 const firstRun = !localStorage.getItem(STORE);
 render();
 showTab(state.tab);
