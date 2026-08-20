@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, estimateFare, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -262,6 +262,20 @@ function applyMapLayout() {
   };
 
   addEventListener('resize', () => { applyMapLayout(); map?.invalidateSize(); });
+}
+
+/* ---------- fare table ---------- */
+// Loaded once, lazily: only a routed day needs it. Precached by the service
+// worker, so it works with no signal.
+let fareTable = null;
+function loadFares() {
+  if (fareTable === null) {
+    fareTable = fetch(new URL("./data/fares.json", import.meta.url))
+      .then(r => (r.ok ? r.json() : null))
+      .then(t => { fareTable = t; render(); return t; })
+      .catch(() => { fareTable = undefined; });
+  }
+  return fareTable;
 }
 
 /* ---------- place search ---------- */
@@ -1012,20 +1026,39 @@ function legRow(d, row) {
   const key = row.leg ? fareKey(row.leg.lines) : '';
   const known = key ? state.fares?.[key] : undefined;
   const url = row.leg?.fareUrl;
+
+  // A fare you entered beats a guess. Only guess when there is nothing better.
+  let guess = null;
+  if (row.leg && known == null) {
+    const table = fareTable;
+    if (table && typeof table.then !== 'function') {
+      guess = estimateFare(table, d.items[row.from], d.items[row.to],
+        (row.leg.lines || []).map(l => l.mode));
+    } else loadFares();
+  }
+
+  const shown = known != null ? `${esc(state.currency)} ${known}`
+    : guess ? `~ ${esc(guess.currency)} ${guess.amount}`
+    : '+ fare';
+
   li.innerHTML = `
     <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
     <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
     ${url ? `<a class="fare-link" href="${esc(url)}" target="_blank" rel="noopener"
        title="Operator fare information">fares</a>` : ''}
-    <button class="fare${known != null ? ' known' : ''}"
-      title="${known != null ? 'Remembered from the last time you rode this' : 'Add what this leg cost'}">
-      ${known != null ? `${esc(state.currency)} ${known}` : '+ fare'}</button>`;
+    <button class="fare${known != null ? ' known' : guess ? ' guess' : ''}"
+      title="${known != null ? 'Remembered from the last time you rode this'
+        : guess ? `Rough ${esc(guess.city)} fare, not from the operator. Tap to confirm or correct.`
+        : 'Add what this leg cost'}">${shown}</button>`;
 
   li.querySelector('.fare').onclick = async () => {
     const entered = await askText({
       title: 'What did this leg cost?',
-      body: `${d.items[row.from].name} → ${d.items[row.to].name}`,
-      label: state.currency, value: known != null ? String(known) : '',
+      body: guess
+        ? `${d.items[row.from].name} → ${d.items[row.to].name}. The figure below is a rough ${guess.city} fare, not from the operator.`
+        : `${d.items[row.from].name} → ${d.items[row.to].name}`,
+      label: state.currency,
+      value: known != null ? String(known) : guess ? String(guess.amount) : '',
       type: 'number', confirm: 'Add to expenses',
     });
     const v = +entered;

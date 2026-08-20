@@ -792,3 +792,5 @@ main > section { position: relative; }
   text-decoration: underline; text-underline-offset: 2px; white-space: nowrap;
 }
 .fare-link:hover { color: var(--accent); }
+.leg .fare.guess { color: var(--dim); border-style: dashed; border-color: var(--line); }
+.leg .fare.guess:hover { border-color: var(--accent); color: var(--fg); }

@@ -174,6 +174,7 @@ export async function route(from, to, when, signal) {
     lines: ridden.map(l => ({
       line: l.routeShortName || l.routeLongName || modeLabel(l.mode),
       from: l.from?.name || '', to: l.to?.name || '',
+      mode: l.mode || '',          // picks the fare table: a bus is not a metro
     })),
     // No agency in the feeds tested publishes GTFS fares, so there is no amount
     // to read. Some publish a link to their fare page, which is the next best.

@@ -271,3 +271,47 @@ export function fareKey(lines = []) {
       .join('>'))
     .join('|');
 }
+
+/** Straight-line km, for matching a journey against a fare step table. */
+const kmBetween = (a, b) => {
+  const R = 6371, rad = d => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+};
+
+/** The fare city a point falls inside, or null. Nearest wins where they overlap. */
+export function fareCity(table, point) {
+  if (!table?.cities || !point) return null;
+  let best = null, bestKm = Infinity;
+  for (const c of table.cities) {
+    const km = kmBetween(point, c);
+    if (km <= (c.radiusKm ?? 40) && km < bestKm) { best = c; bestKm = km; }
+  }
+  return best;
+}
+
+/**
+ * A starting guess at what a journey costs, from the committed fare table.
+ *
+ * Only ever a suggestion: no agency publishes fares in its feed, so these are
+ * hand-written approximations that go stale. A fare the traveller enters is
+ * remembered separately and takes precedence.
+ *
+ * Returns { amount, currency, city, mode } or null when the city is unknown.
+ */
+export function estimateFare(table, from, to, modes = []) {
+  const city = fareCity(table, from);
+  if (!city) return null;
+
+  // The mode you spend most of the journey on decides the table; a bus is
+  // priced differently from the metro even over the same distance.
+  const mode = modes.map(m => String(m || '').toUpperCase()).find(m => city.modes[m]) || '*';
+  const steps = city.modes[mode] || city.modes['*'];
+  if (!steps?.length) return null;
+
+  const km = to ? kmBetween(from, to) : 0;
+  const hit = steps.find(([maxKm]) => km <= maxKm) || steps[steps.length - 1];
+  return { amount: hit[1], currency: city.currency, city: city.label, mode };
+}

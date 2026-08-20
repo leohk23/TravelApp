@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, fmtTime, fmtDur, fmtStay } from './logic.js';
+import fs from 'node:fs';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, estimateFare, fareCity, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -138,5 +139,41 @@ assert.notEqual(fareKey([{ line: "ISL", from: "Central", to: "Tsim Sha Tsui" }])
 assert.equal(fareKey([]), "", "a walk-only leg has no fare identity");
 assert.equal(fareKey([{ line: "A", from: "x", to: "y" }, { line: "B", from: "y", to: "z" }]),
   "a>x>y|b>y>z", "a two-leg journey keys on both");
+
+// --- fare estimates from the committed table ---
+const FARES = JSON.parse(fs.readFileSync(new URL("./data/fares.json", import.meta.url), "utf8"));
+const HK_CENTRAL = { lat: 22.2819, lng: 114.1583 };
+const HK_TST = { lat: 22.2976, lng: 114.1722 };
+const HK_FAR = { lat: 22.4445, lng: 114.0225 };          // Tuen Mun-ish, far out
+const NOWHERE = { lat: -35.0, lng: -60.0 };              // rural Argentina
+
+assert.equal(fareCity(FARES, HK_CENTRAL).id, "hongkong");
+assert.equal(fareCity(FARES, NOWHERE), null, "unknown city yields no guess");
+assert.equal(estimateFare(FARES, NOWHERE, HK_TST), null);
+
+const short = estimateFare(FARES, HK_CENTRAL, HK_TST, ["SUBWAY"]);
+assert.equal(short.currency, "HKD");
+assert.equal(short.amount, 5.5, "a couple of stops sits in the first step");
+const long = estimateFare(FARES, HK_CENTRAL, HK_FAR, ["SUBWAY"]);
+assert.ok(long.amount > short.amount, "further costs more");
+
+assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["BUS"]).amount, 6.0, "buses use their own table");
+assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["FUNICULAR"]).amount, 5.5,
+  "an unlisted mode falls back to the default table");
+
+// London buses are flat however far you go
+const LDN = { lat: 51.5074, lng: -0.1278 }, LDN_FAR = { lat: 51.5679, lng: -0.2418 };
+assert.equal(estimateFare(FARES, LDN, LDN_FAR, ["BUS"]).amount, 1.75);
+assert.ok(estimateFare(FARES, LDN, LDN_FAR, ["SUBWAY"]).amount > 1.75, "the tube is zonal, not flat");
+
+for (const c of FARES.cities) {
+  assert.ok(c.modes["*"], `${c.id} needs a default mode table`);
+  for (const [mode, steps] of Object.entries(c.modes)) {
+    assert.ok(steps.length, `${c.id}/${mode} is empty`);
+    const maxes = steps.map(s => s[0]);
+    assert.deepEqual(maxes, [...maxes].sort((x, y) => x - y), `${c.id}/${mode} steps must ascend`);
+    assert.ok(steps.every(s => s[1] > 0), `${c.id}/${mode} has a non-positive fare`);
+  }
+}
 
 console.log('all good');
