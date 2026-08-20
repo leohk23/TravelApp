@@ -20,16 +20,44 @@ async function getJSON(url, signal) {
   return r.json();
 }
 
+/** OSM tags that mean "somewhere you sleep", for the hotel picker. */
+export const STAY_TAGS = [
+  'tourism:hotel', 'tourism:hostel', 'tourism:guest_house',
+  'tourism:apartment', 'tourism:motel',
+];
+
+/** Degrees box around a point. Photon's bbox is a hard filter; lat/lon alone is not. */
+function bboxAround({ lat, lng }, km) {
+  const dLat = km / 111;
+  const dLng = km / (111 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)));
+  return [lng - dLng, lat - dLat, lng + dLng, lat + dLat].map(n => n.toFixed(4)).join(',');
+}
+
 /**
- * Type-ahead place search. `near` ({lat,lng}) biases results, which matters a
- * lot: unbiased, "tim ho wan" finds nothing useful.
+ * Type-ahead place search.
+ *   near      {lat,lng} to search around - without it, brand names land anywhere
+ *   tags      restrict to OSM categories, e.g. STAY_TAGS
+ *   radiusKm  half-width of the hard bbox filter
+ *
+ * `lat`/`lon` alone is only a weak nudge: "park hyatt" biased to Tokyo still
+ * returns Chennai and Paris first. A bbox actually constrains it, so we box the
+ * search and retry unboxed only if that found nothing.
+ *
  * Returns [{ name, label, kind, lat, lng }].
  */
-export async function search(q, near, signal) {
+export async function search(q, { near, tags, radiusKm = 60, limit = 6 } = {}, signal) {
+  const hits = await runSearch(q, { near, tags, limit, box: near ? bboxAround(near, radiusKm) : null }, signal);
+  if (hits.length || !near) return hits;
+  return runSearch(q, { near, tags, limit }, signal);   // box was too tight
+}
+
+async function runSearch(q, { near, tags, limit, box }, signal) {
   const u = new URL(PHOTON);
   u.searchParams.set('q', q);
-  u.searchParams.set('limit', '6');
+  u.searchParams.set('limit', String(limit));
   if (near) { u.searchParams.set('lat', near.lat); u.searchParams.set('lon', near.lng); }
+  if (box) u.searchParams.set('bbox', box);
+  for (const t of tags || []) u.searchParams.append('osm_tag', t);
 
   const { features = [] } = await getJSON(u, signal);
   return features.map(f => {

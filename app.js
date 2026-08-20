@@ -1,5 +1,5 @@
 import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, fmtTime, fmtDur, pad } from './logic.js';
-import { search, geocode, route, haversine } from './providers.js';
+import { search, geocode, route, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
@@ -23,6 +23,63 @@ const save = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/* ---------- in-app dialogs (native confirm/alert/prompt break the app illusion) ---------- */
+let askResolve = null;
+
+/** Modal yes/no. Resolves false on Escape or Cancel. */
+function ask({ title, body = '', confirm = 'Confirm', danger = false }) {
+  $('#askTitle').textContent = title;
+  $('#askBody').textContent = body;
+  $('#askBody').hidden = !body;
+  $('#askInputWrap').hidden = true;
+  const ok = $('#askOk');
+  ok.textContent = confirm;
+  ok.className = danger ? 'danger-solid' : 'primary';
+  const dlg = $('#ask');
+  dlg.returnValue = '';
+  dlg.showModal();
+  return new Promise(res => { askResolve = () => res(dlg.returnValue === 'ok'); });
+}
+
+/** Modal single-field prompt. Resolves null if dismissed. */
+function askText({ title, body = '', label, value = '', type = 'text', confirm = 'Save' }) {
+  $('#askTitle').textContent = title;
+  $('#askBody').textContent = body;
+  $('#askBody').hidden = !body;
+  $('#askInputWrap').hidden = false;
+  $('#askLabel').firstChild.textContent = label;
+  const input = $('#askInput');
+  input.type = type;
+  input.value = value;
+  const ok = $('#askOk');
+  ok.textContent = confirm;
+  ok.className = 'primary';
+  const dlg = $('#ask');
+  dlg.returnValue = '';
+  dlg.showModal();
+  input.focus();
+  input.select();
+  return new Promise(res => {
+    askResolve = () => res(dlg.returnValue === 'ok' ? input.value : null);
+  });
+}
+
+$('#ask').addEventListener('close', () => { askResolve?.(); askResolve = null; });
+$('#askOk').onclick = () => $('#ask').close('ok');
+$('#askCancel').onclick = () => $('#ask').close('');
+$('#askInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('#ask').close('ok'); }
+});
+
+/** Transient message. Non-blocking, because an error should not stop you working. */
+function toast(msg, kind = 'bad') {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  $('#toasts').append(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 250); }, 4200);
+}
 
 let busy = 0;
 const setBusy = n => { busy += n; $('#busy').hidden = busy <= 0; };
@@ -115,8 +172,17 @@ async function biasPoint() {
   return d.cityPt || null;
 }
 
-function mountSearch() {
-  const input = $('#poiSearch'), list = $('#poiResults');
+/**
+ * Attaches type-ahead to an input. Its parent must carry .ac (position:relative).
+ * `bias` is async so it can geocode the day's city on first use.
+ */
+function attachSearch(input, { onPick, bias, tags, clearOnPick = false, list }) {
+  if (!list) {
+    list = document.createElement('ul');
+    list.className = 'ac-list';
+    list.hidden = true;
+    input.parentElement.append(list);
+  }
   let timer, abort, hits = [], cursor = -1;
 
   const hide = () => { list.hidden = true; cursor = -1; };
@@ -133,8 +199,9 @@ function mountSearch() {
   const pick = i => {
     const h = hits[i];
     if (!h) return;
-    addPoi({ name: h.name, address: h.label, lat: h.lat, lng: h.lng, stayMin: 60 });
-    input.value = ''; hits = []; hide();
+    onPick(h);
+    if (clearOnPick) input.value = '';
+    hits = []; hide();
   };
 
   input.oninput = () => {
@@ -145,7 +212,7 @@ function mountSearch() {
       abort?.abort();
       abort = new AbortController();
       try {
-        hits = await search(q, await biasPoint(), abort.signal);
+        hits = await search(q, { near: await bias?.(), tags }, abort.signal);
         cursor = -1;
         draw();
       } catch (e) {
@@ -161,7 +228,16 @@ function mountSearch() {
     else if (e.key === 'Enter') { e.preventDefault(); pick(cursor < 0 ? 0 : cursor); }
     else if (e.key === 'Escape') hide();
   };
-  input.onblur = () => setTimeout(hide, 120);
+  input.onblur = () => setTimeout(hide, 150);
+}
+
+function mountSearch() {
+  attachSearch($('#poiSearch'), {
+    list: $('#poiResults'),
+    bias: biasPoint,
+    clearOnPick: true,
+    onPick: h => addPoi({ name: h.name, address: h.label, lat: h.lat, lng: h.lng, stayMin: 60 }),
+  });
 }
 
 /* ---------- day tabs (shared by Itinerary and Local travel) ---------- */
@@ -226,7 +302,9 @@ function bookingCard(b) {
     <div class="brow head">
       <select class="f-kind" aria-label="Type">${KINDS.map(k =>
         `<option value="${k}"${k === b.kind ? ' selected' : ''}>${ICON[k]} ${k}</option>`).join('')}</select>
-      <input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="${stay ? 'Hotel name' : 'Flight / service no.'}">
+      ${stay
+        ? `<span class="ac grow"><input class="f-ref" value="${esc(b.ref || '')}" placeholder="Search a hotel…" autocomplete="off"></span>`
+        : `<input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="Flight / service no.">`}
       <span class="spacer"></span>
       <button class="bill${billed ? ' on' : ''}"${+b.cost > 0 ? '' : ' disabled'}
         title="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}">${billed ? '✓ expensed' : '+ expense'}</button>
@@ -270,8 +348,13 @@ function bookingCard(b) {
   bind('.f-cost', 'cost', true);
   bind('.f-notes', 'notes');
 
-  li.querySelector('.x').onclick = () => {
-    if (!confirm(`Remove ${b.ref || b.kind}?`)) return;
+  li.querySelector('.x').onclick = async () => {
+    const ok = await ask({
+      title: `Remove ${b.ref || b.kind}?`,
+      body: billed ? 'Its expense entry is removed too.' : '',
+      confirm: 'Remove', danger: true,
+    });
+    if (!ok) return;
     state.itinerary = state.itinerary.filter(x => x.id !== b.id);
     state.expenses = state.expenses.filter(e => e.src !== b.id);
     save(); render();
@@ -286,14 +369,32 @@ function bookingCard(b) {
     save(); render();
   };
 
+  if (stay) attachSearch(li.querySelector('.f-ref'), {
+    bias: biasPoint,
+    tags: STAY_TAGS,
+    onPick: h => {
+      // Fills the name, address and coordinates at once, so neither the map link
+      // nor "start day here" has to geocode again.
+      b.ref = h.name; b.from = h.label; b.lat = h.lat; b.lng = h.lng;
+      save(); render();
+    },
+  });
+
   li.querySelector('.mapit')?.addEventListener('click', () => {
-    const q = b.from || b.ref;
-    if (q) window.open(`https://www.openstreetmap.org/search?query=${encodeURIComponent(q)}`, '_blank', 'noopener');
+    const url = b.lat != null
+      ? `https://www.openstreetmap.org/?mlat=${b.lat}&mlon=${b.lng}#map=17/${b.lat}/${b.lng}`
+      : `https://www.openstreetmap.org/search?query=${encodeURIComponent(b.from || b.ref)}`;
+    if (b.lat != null || b.from || b.ref) window.open(url, '_blank', 'noopener');
   });
 
   li.querySelector('.startday')?.addEventListener('click', async () => {
+    if (b.lat != null) {                       // picked from the list, already located
+      day().items.unshift({ name: b.ref || b.from, address: b.from, lat: b.lat, lng: b.lng, stayMin: 0 });
+      save(); showTab('local'); recalc();
+      return;
+    }
     const q = b.from || b.ref;
-    if (!q) return alert('Give the hotel an address first.');
+    if (!q) return toast('Give the hotel an address first, or pick it from the search list.');
     setBusy(1);
     try {
       const poi = await geocode(q);
@@ -301,7 +402,7 @@ function bookingCard(b) {
       poi.stayMin = 0;
       day().items.unshift(poi);
       save(); setBusy(-1); showTab('local'); recalc();
-    } catch (err) { alert(err.message); setBusy(-1); }
+    } catch (err) { toast(err.message); setBusy(-1); }
   });
 
   return li;
@@ -400,8 +501,12 @@ function legRow(d, row) {
     <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
     <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
     <button class="fare" title="Add what this leg cost to Expenses">+ fare</button>`;
-  li.querySelector('.fare').onclick = () => {
-    const v = +prompt(`Fare for this leg, in ${state.currency}:`, '');
+  li.querySelector('.fare').onclick = async () => {
+    const v = +await askText({
+      title: 'What did this leg cost?',
+      body: `${d.items[row.from].name} → ${d.items[row.to].name}`,
+      label: state.currency, type: 'number', confirm: 'Add to expenses',
+    });
     if (!v) return;
     state.expenses.push({
       desc: `Transit: ${d.items[row.from].name} → ${d.items[row.to].name}`,
@@ -570,17 +675,23 @@ function openWizard() {
   $('#wizard').showModal();
 }
 
-function buildTrip() {
+async function buildTrip() {
   const cities = [...$('#wCities').children]
     .map(r => ({ name: r.querySelector('.c-name').value.trim(), nights: +r.querySelector('.c-nights').value || 1 }))
     .filter(c => c.name);
-  if (!cities.length) { alert('Add at least one city.'); wizShow(1); return; }
+  if (!cities.length) { toast('Add at least one city.'); wizShow(1); return; }
 
   const start = $('#wStart').value;
-  if (!start) { alert('Pick the first day of the trip.'); return; }
+  if (!start) { toast('Pick the first day of the trip.'); return; }
 
-  const hasStops = state.days.some(d => d.items.length);
-  if (hasStops && !confirm(`This replaces the current ${state.days.length} day(s) and their stops. Bookings and expenses are kept. Continue?`)) return;
+  if (state.days.some(d => d.items.length)) {
+    const ok = await ask({
+      title: 'Replace the current plan?',
+      body: `The ${state.days.length} day(s) you have now, and their stops, are replaced. Bookings and expenses are kept.`,
+      confirm: 'Replace', danger: true,
+    });
+    if (!ok) return;
+  }
 
   const t = new Date(`${start}T00:00`);
   const days = [];
@@ -632,9 +743,14 @@ $('#dayDate').onchange = e => {
   save(); render(); recalc();
 };
 $('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
-$('#delDay').onclick = () => {
-  if (state.days.length < 2) return alert('A trip needs at least one day.');
-  if (!confirm(`Delete day ${state.dayIdx + 1}? Its stops are lost; bookings stay in the Itinerary.`)) return;
+$('#delDay').onclick = async () => {
+  if (state.days.length < 2) return toast('A trip needs at least one day.');
+  const ok = await ask({
+    title: `Delete day ${state.dayIdx + 1}?`,
+    body: 'Its stops are lost. Bookings stay in the Itinerary.',
+    confirm: 'Delete day', danger: true,
+  });
+  if (!ok) return;
   state.days.splice(state.dayIdx, 1);
   state.dayIdx = Math.min(state.dayIdx, state.days.length - 1);
   save(); render();
@@ -667,7 +783,7 @@ $('#addPoi').onsubmit = async e => {
       day().items.push(await geocode(q));
     }
     input.value = ''; save(); setBusy(-1); recalc();
-  } catch (err) { alert(err.message); save(); setBusy(-1); render(); }
+  } catch (err) { toast(err.message); save(); setBusy(-1); render(); }
 };
 $('#addNote').onclick = () => {
   day().items.push({ name: '', stayMin: 30 });   // no coords, so never routed

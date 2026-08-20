@@ -186,6 +186,23 @@
   </div>
 </dialog>
 
+<dialog id="ask">
+  <div class="ask-head">
+    <h2 id="askTitle"></h2>
+    <p id="askBody"></p>
+  </div>
+  <div class="ask-body" id="askInputWrap" hidden>
+    <label id="askLabel">Amount<input id="askInput"></label>
+  </div>
+  <div class="wiz-foot">
+    <span class="spacer"></span>
+    <button id="askCancel" type="button">Cancel</button>
+    <button id="askOk" type="button" class="primary">Confirm</button>
+  </div>
+</dialog>
+
+<div id="toasts" aria-live="polite"></div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="anonymous"></script>
