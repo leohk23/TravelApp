@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, fmtTime, fmtDur } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, fmtTime, fmtDur } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -59,6 +59,21 @@ assert.deepEqual(
   placePairs(drift).map(([from]) => from),
   'leg lookup keys must match the pairs routing computes',
 );
+
+// --- shifting the whole trip ---
+assert.deepEqual(
+  shiftDates(["2026-04-14", "2026-04-15", "2026-04-16"], "2026-04-21"),
+  ["2026-04-21", "2026-04-22", "2026-04-23"], "moves every day by the same delta");
+assert.deepEqual(
+  shiftDates(["2026-04-14", "", "2026-04-20"], "2026-04-15"),
+  ["2026-04-15", "", "2026-04-21"], "keeps gaps and leaves blanks blank");
+assert.deepEqual(
+  shiftDates(["2026-01-30", "2026-01-31"], "2026-02-27"),
+  ["2026-02-27", "2026-02-28"], "crosses a month boundary");
+assert.deepEqual(
+  shiftDates(["2026-04-14"], "2026-04-14"), ["2026-04-14"], "no-op when unchanged");
+assert.deepEqual(shiftDates(["", ""], "2026-04-14"), ["", ""], "nothing to anchor on");
+assert.deepEqual(shiftDates(["2026-04-14"], ""), ["2026-04-14"], "no target date");
 
 assert.equal(fmtTime(1500), '01:00 +1');
 assert.equal(fmtDur(5400), '1h 30');

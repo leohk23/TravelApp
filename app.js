@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, fmtTime, fmtDur, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, fmtTime, fmtDur, pad } from './logic.js';
 import { search, searchCity, geocode, route, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -23,6 +23,8 @@ const save = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** Only worth labelling days by city when the trip actually visits more than one. */
+const multiCity = () => new Set(state.days.map(d => d.city).filter(Boolean)).size > 1;
 
 /* ---------- in-app dialogs (native confirm/alert/prompt break the app illusion) ---------- */
 let askResolve = null;
@@ -175,19 +177,32 @@ async function biasPoint() {
 }
 
 /**
- * Attaches type-ahead to an input. Its parent must carry .ac (position:relative).
+ * Attaches type-ahead to an input, positioning the dropdown itself.
  * `bias` is async so it can geocode the day's city on first use.
+ * `find` overrides the default place search (city search uses this).
  */
-function attachSearch(input, { onPick, bias, tags, clearOnPick = false, list, find }) {
-  if (!list) {
-    list = document.createElement('ul');
-    list.className = 'ac-list';
-    list.hidden = true;
-    input.parentElement.append(list);
-  }
+function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) {
+  const list = document.createElement('ul');
+  list.className = 'ac-list';
+  list.hidden = true;
+  // A modal <dialog> renders in the top layer, above anything z-index can reach,
+  // so a dropdown parented to <body> would be hidden behind it. Fixed position
+  // then escapes the dialog's own scrolling without being clipped.
+  (input.closest('dialog') || document.body).append(list);
+
   let timer, abort, hits = [], cursor = -1;
 
-  const hide = () => { list.hidden = true; cursor = -1; };
+  const place = () => {
+    const r = input.getBoundingClientRect();
+    list.style.left = `${r.left}px`;
+    list.style.top = `${r.bottom + 4}px`;
+    list.style.width = `${Math.max(r.width, 220)}px`;
+  };
+  const hide = () => {
+    list.hidden = true;
+    cursor = -1;
+    removeEventListener('scroll', hide, true);
+  };
   const draw = () => {
     list.replaceChildren(...hits.map((h, i) => {
       const li = document.createElement('li');
@@ -197,6 +212,7 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, list, fi
       return li;
     }));
     list.hidden = !hits.length;
+    if (!list.hidden) { place(); addEventListener('scroll', hide, true); }
   };
   const pick = i => {
     const h = hits[i];
@@ -237,7 +253,6 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, list, fi
 
 function mountSearch() {
   attachSearch($('#poiSearch'), {
-    list: $('#poiResults'),
     bias: biasPoint,
     clearOnPick: true,
     onPick: h => addPoi({ name: h.name, address: h.label, lat: h.lat, lng: h.lng, stayMin: 60 }),
@@ -248,10 +263,12 @@ function mountSearch() {
 function renderDays() {
   const tabs = $('#dayTabs');
   tabs.innerHTML = '';
+  const showCity = multiCity();
   state.days.forEach((d, i) => {
     const b = document.createElement('button');
     b.className = 'tab' + (i === state.dayIdx ? ' on' : '');
-    b.textContent = [`Day ${i + 1}`, d.date && d.date.slice(5), d.city].filter(Boolean).join(' · ');
+    b.textContent = [`Day ${i + 1}`, d.date && d.date.slice(5), showCity && d.city]
+      .filter(Boolean).join(' · ');
     b.onclick = () => { state.dayIdx = i; save(); render(); };
     tabs.append(b);
   });
@@ -585,6 +602,7 @@ function renderOverview() {
     state.members.join(', '),
   ].filter(Boolean).join('  ·  ');
 
+  const showCity = multiCity();
   $('#ovDays').replaceChildren(...state.days.map((d, i) => {
     const stays = state.itinerary.filter(b => isStay(b.kind) && d.date && staysOn(b, d.date));
     const moves = state.itinerary.filter(b => !isStay(b.kind) && d.date && movesOn(b, d.date));
@@ -597,7 +615,7 @@ function renderOverview() {
       <header>
         <b>Day ${i + 1}</b>
         <span>${esc(wkday(d.date))}</span>
-        ${d.city ? `<em>${esc(d.city)}</em>` : ''}
+        ${showCity && d.city ? `<em>${esc(d.city)}</em>` : ''}
         <span class="spacer"></span>
         ${travel ? `<small>${fmtDur(travel * 60)} travelling</small>` : ''}
       </header>
@@ -755,66 +773,93 @@ $('#wizard').addEventListener('keydown', e => {
 /* ---------- wiring ---------- */
 $('#tripName').oninput = e => { state.name = e.target.value; save(); };
 
-/* ---------- day settings ---------- */
+/* ---------- trip days: edit every date and city in one table ---------- */
 function openDayDlg() {
-  $('#ddTitle').textContent = `Day ${state.dayIdx + 1}`;
-  $('#ddDate').value = day().date;
-  $('#ddCity').value = day().city || '';
-  $('#ddDelete').disabled = state.days.length < 2;
-  // showModal() throws on an already-open dialog, and "add a day" reopens it.
-  if (!$('#dayDlg').open) $('#dayDlg').showModal();
+  renderDayTable();
+  if (!$('#dayDlg').open) $('#dayDlg').showModal();   // showModal throws if already open
+}
+
+function renderDayTable() {
+  const first = state.days.find(d => d.date);
+  $('#ddStart').value = first ? first.date : '';
+
+  $('#ddRows').replaceChildren(...state.days.map((d, i) => {
+    const tr = document.createElement('tr');
+    if (i === state.dayIdx) tr.className = 'on';
+    tr.innerHTML = `
+      <th><button class="r-go" type="button" title="Open this day">Day ${i + 1}</button></th>
+      <td><input type="date" class="r-date" value="${esc(d.date || '')}"></td>
+      <td><span class="ac"><input class="r-city" value="${esc(d.city || '')}" placeholder="City" autocomplete="off"></span></td>
+      <td><button class="r-fill" type="button" title="Use this city for every later day">↓</button></td>
+      <td><button class="r-del x" type="button" title="Delete this day"${state.days.length < 2 ? ' disabled' : ''}>✕</button></td>`;
+
+    tr.querySelector('.r-go').onclick = () => {
+      state.dayIdx = i;
+      save(); render(); renderDayTable();
+    };
+
+    tr.querySelector('.r-date').onchange = e => {
+      d.date = e.target.value;
+      save(); render(); renderDayTable(); recalc();
+    };
+
+    const cityInput = tr.querySelector('.r-city');
+    attachSearch(cityInput, {
+      find: searchCity,
+      onPick: h => {
+        d.city = h.name;
+        d.cityPt = { lat: h.lat, lng: h.lng };
+        cityInput.value = h.name;
+        save(); render(); renderDayTable();
+      },
+    });
+    cityInput.onchange = e => {                 // free text is fine, it is only a label
+      const v = e.target.value.trim();
+      if (v === (d.city || '')) return;         // unchanged, e.g. straight after a pick
+      d.city = v;
+      delete d.cityPt;                          // the cached point belonged to the old city
+      save(); render(); renderDayTable();
+    };
+
+    tr.querySelector('.r-fill').onclick = () => {
+      for (let k = i + 1; k < state.days.length; k++) {
+        state.days[k].city = d.city;
+        if (d.cityPt) state.days[k].cityPt = { ...d.cityPt };
+        else delete state.days[k].cityPt;
+      }
+      save(); render(); renderDayTable();
+      toast(`${d.city || 'Blank'} applied to the following days.`, 'ok');
+    };
+
+    tr.querySelector('.r-del').onclick = async () => {
+      if (state.days.length < 2) return toast('A trip needs at least one day.');
+      $('#dayDlg').close();                     // stacked modals fight over focus
+      const ok = await ask({
+        title: `Delete day ${i + 1}?`,
+        body: 'Its stops are lost. Bookings stay in the Itinerary.',
+        confirm: 'Delete day', danger: true,
+      });
+      if (ok) {
+        state.days.splice(i, 1);
+        state.dayIdx = Math.min(state.dayIdx, state.days.length - 1);
+        save(); render();
+      }
+      openDayDlg();
+    };
+
+    return tr;
+  }));
 }
 
 $('#dayEdit').onclick = openDayDlg;
 $('#ddDone').onclick = () => $('#dayDlg').close();
-$('#ddAdd').onclick = () => { addDayAfter(state.dayIdx); openDayDlg(); };
+$('#ddAdd').onclick = () => { addDayAfter(state.days.length - 1); renderDayTable(); };
 
-$('#ddDate').onchange = e => {
-  day().date = e.target.value;
-  // Fill blank later days with consecutive dates - saves typing out a long trip.
-  if (day().date) {
-    let t = new Date(`${day().date}T00:00`);
-    for (let i = state.dayIdx + 1; i < state.days.length; i++) {
-      t.setDate(t.getDate() + 1);
-      if (state.days[i].date) t = new Date(`${state.days[i].date}T00:00`);
-      else state.days[i].date = isoDate(t);
-    }
-  }
-  save(); render(); recalc();
-};
-
-attachSearch($('#ddCity'), {
-  find: searchCity,
-  onPick: h => {
-    const d = day();
-    d.city = h.name;
-    d.cityPt = { lat: h.lat, lng: h.lng };   // saves geocoding it later for search bias
-    $('#ddCity').value = h.name;
-    save(); render();
-  },
-});
-
-// Typing something the list does not have is fine - it is just a label.
-$('#ddCity').onchange = e => {
-  const v = e.target.value.trim();
-  if (v === (day().city || '')) return;      // unchanged, e.g. straight after a pick
-  day().city = v;
-  delete day().cityPt;                       // the cached point belonged to the old city
-  save(); render();
-};
-
-$('#ddDelete').onclick = async () => {
-  if (state.days.length < 2) return toast('A trip needs at least one day.');
-  $('#dayDlg').close();         // close first: stacked modals fight for focus
-  const ok = await ask({
-    title: `Delete day ${state.dayIdx + 1}?`,
-    body: 'Its stops are lost. Bookings stay in the Itinerary.',
-    confirm: 'Delete day', danger: true,
-  });
-  if (!ok) return;
-  state.days.splice(state.dayIdx, 1);
-  state.dayIdx = Math.min(state.dayIdx, state.days.length - 1);
-  save(); render();
+/** Shifts the whole trip, so a trip that slips by a week is one edit. */
+$('#ddStart').onchange = e => {
+  const moved = shiftDates(state.days.map(d => d.date), e.target.value);
+  moved.forEach((date, i) => { state.days[i].date = date; });
+  save(); render(); renderDayTable(); recalc();
 };
 $('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
 const addBooking = (kind, time) => {

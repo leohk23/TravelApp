@@ -125,3 +125,24 @@ export function settleUp(expenses, members) {
   for (const k in bal) bal[k] = r2(bal[k]);
   return { balances: bal, transfers };
 }
+
+/**
+ * Moves a list of ISO dates so the first non-empty one lands on `newStart`,
+ * keeping every gap between them. Blanks stay blank.
+ *
+ * Works in whole calendar days via setDate, so a trip spanning a daylight-saving
+ * change does not drift by an hour and round to the wrong day.
+ */
+export function shiftDates(dates, newStart) {
+  const first = dates.find(Boolean);
+  if (!first || !newStart) return [...dates];
+  const delta = Math.round(
+    (new Date(`${newStart}T00:00`) - new Date(`${first}T00:00`)) / 86400000);
+  if (!delta) return [...dates];
+  return dates.map(d => {
+    if (!d) return d;
+    const t = new Date(`${d}T00:00`);
+    t.setDate(t.getDate() + delta);
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  });
+}
