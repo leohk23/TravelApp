@@ -1118,8 +1118,7 @@ function legRow(d, row) {
   if (ridden && known == null) {
     const table = fareTable;
     if (table && typeof table.then !== 'function') {
-      guess = estimateFare(table, d.items[row.from], d.items[row.to],
-        (row.leg.lines || []).map(l => l.mode));
+      guess = estimateFare(table, d.items[row.from], d.items[row.to], row.leg.steps || []);
     } else loadFares();
   }
 
@@ -1149,11 +1148,18 @@ function legRow(d, row) {
   if (li.querySelector('.fare')) li.querySelector('.fare').onclick = async () => {
     const entered = await askText({
       title: 'What did this leg cost?',
-      body: localCurrency
-        ? `${d.items[row.from].name} → ${d.items[row.to].name}. A single fare here is roughly ${localCurrency} ${guess.amount}, but this trip records expenses in ${state.currency}, so enter what you paid in ${state.currency}.`
+      body: (() => {
+        // Show the split when more than one operator charged, since that is
+        // the part people do not expect.
+        const parts = guess?.breakdown?.length > 1
+          ? ` Made up of ${guess.breakdown.map(x => `${x.operator} ${x.amount}`).join(" + ")}.`
+          : "";
+        return localCurrency
+        ? `${d.items[row.from].name} → ${d.items[row.to].name}. A single fare here is roughly ${localCurrency} ${guess.amount}.${parts} This trip records expenses in ${state.currency}, so enter what you paid in ${state.currency}.`
         : guess
-          ? `${d.items[row.from].name} → ${d.items[row.to].name}. The figure below is a rough ${guess.city} fare, not from the operator.`
-          : `${d.items[row.from].name} → ${d.items[row.to].name}`,
+          ? `${d.items[row.from].name} → ${d.items[row.to].name}. The figure below is a rough ${guess.city} fare, not from the operator.${parts}`
+          : `${d.items[row.from].name} → ${d.items[row.to].name}`;
+      })(),
       label: state.currency,
       value: known != null ? String(known)
         : guess && !localCurrency ? String(guess.amount)

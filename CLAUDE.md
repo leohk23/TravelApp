@@ -137,12 +137,15 @@ Everything network-facing is in `providers.js`:
   Returns a pareto set, not a sorted list, so `route()` picks earliest arrival.
   No fare data, and its `one-to-many` matrix endpoint rejected every coordinate
   format tried.
-- **Fare table** (`data/fares.json`) — hand-written approximate single fares
-  per city and mode, as [maxKm, price] steps. Not fetched from anywhere and not
-  authoritative: no agency publishes fares in its GTFS feed, so this is a
-  starting guess only. It pre-fills the fare dialog and is never added silently.
-  A fare the traveller enters is stored in `state.fares` and always wins.
-  Correct the JSON when a figure is wrong; add a city by copying a block.
+- **Fare table** (`data/fares.json`) — approximate single fares per city, and
+  per **operator** where a city lists them. Operators charge separately and the
+  fares are summed, because that is how Tokyo works: Metro then Toei is two
+  fares, less a named transfer discount. Matching is case-insensitive substring
+  on the agency name from the router, first match wins, so specific names come
+  before general ones (Toei bus before Toei). Hand-written and not
+  authoritative: no agency publishes fares in an open feed without
+  registration. It pre-fills the fare dialog and is never added silently, and a
+  fare the traveller enters wins. Correct the JSON when a figure is wrong.
 - **Airport index** (`data/airports.json`) — committed IATA lookup built by
   `tools/make-airports.mjs` from OurAirports. Photon indexes airport names but
   not codes, so "NRT" found nothing; Overpass could query the tag but its public

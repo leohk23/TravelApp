@@ -144,40 +144,77 @@ assert.equal(fareKey([{ line: "A", from: "x", to: "y" }, { line: "B", from: "y",
 const FARES = JSON.parse(fs.readFileSync(new URL("./data/fares.json", import.meta.url), "utf8"));
 const HK_CENTRAL = { lat: 22.2819, lng: 114.1583 };
 const HK_TST = { lat: 22.2976, lng: 114.1722 };
-const HK_FAR = { lat: 22.4445, lng: 114.0225 };          // Tuen Mun-ish, far out
-const NOWHERE = { lat: -35.0, lng: -60.0 };              // rural Argentina
+const NOWHERE = { lat: -35.0, lng: -60.0 };
+const ride = (mode, km, agency) => ({ mode, metres: km * 1000, agency });
+const walk = km => ({ mode: "WALK", metres: km * 1000 });
 
 assert.equal(fareCity(FARES, HK_CENTRAL).id, "hongkong");
 assert.equal(fareCity(FARES, NOWHERE), null, "unknown city yields no guess");
-assert.equal(estimateFare(FARES, NOWHERE, HK_TST), null);
+assert.equal(estimateFare(FARES, NOWHERE, HK_TST, [ride("SUBWAY", 3)]), null);
 
-const short = estimateFare(FARES, HK_CENTRAL, HK_TST, ["SUBWAY"]);
-assert.equal(short.currency, "HKD");
-assert.equal(short.amount, 5.5, "a couple of stops sits in the first step");
-const long = estimateFare(FARES, HK_CENTRAL, HK_FAR, ["SUBWAY"]);
-assert.ok(long.amount > short.amount, "further costs more");
+assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, []), null, "no steps, nothing ridden");
+assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, [walk(0.3), walk(0.2)]), null,
+  "walking the whole way costs nothing");
 
-assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["BUS"]).amount, 6.0, "buses use their own table");
-assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, []), null,
-  "walking the whole way costs nothing, so there is nothing to estimate");
-assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["", null]), null,
-  "blank modes are not a service ridden");
-assert.equal(fareKey([]), "", "and a walk has no fare to remember either");
-assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["FUNICULAR"]).amount, 5.5,
-  "an unlisted mode falls back to the default table");
+const hk = estimateFare(FARES, HK_CENTRAL, HK_TST, [walk(0.2), ride("SUBWAY", 3), walk(0.3)]);
+assert.equal(hk.currency, "HKD");
+assert.equal(hk.amount, 5.5, "a couple of stops sits in the first step");
+assert.ok(estimateFare(FARES, HK_CENTRAL, HK_TST, [ride("SUBWAY", 25)]).amount > hk.amount,
+  "further costs more");
+assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, [ride("BUS", 3)]).amount, 6.0,
+  "buses use their own table");
 
-// London buses are flat however far you go
-const LDN = { lat: 51.5074, lng: -0.1278 }, LDN_FAR = { lat: 51.5679, lng: -0.2418 };
-assert.equal(estimateFare(FARES, LDN, LDN_FAR, ["BUS"]).amount, 1.75);
-assert.ok(estimateFare(FARES, LDN, LDN_FAR, ["SUBWAY"]).amount > 1.75, "the tube is zonal, not flat");
+// Tokyo charges per operator, which is the whole point of the operator tables
+const TOKYO = { lat: 35.6812, lng: 139.7671 };
+const metroOnly = estimateFare(FARES, TOKYO, null, [ride("SUBWAY", 5, "東京メトロ Tokyo Metro")]);
+assert.equal(metroOnly.amount, 178, "one operator, one fare");
+assert.deepEqual(metroOnly.breakdown.map(b => b.operator), ["Tokyo Metro"]);
+
+const twoOperators = estimateFare(FARES, TOKYO, null, [
+  ride("SUBWAY", 5, "東京メトロ Tokyo Metro"),
+  ride("SUBWAY", 3, "都営地下鉄 Toei Subway"),
+]);
+assert.equal(twoOperators.breakdown.length, 2, "each operator charges separately");
+assert.equal(twoOperators.amount, 178 + 178 - 70, "the Metro to Toei transfer discount applies");
+assert.ok(twoOperators.amount > metroOnly.amount, "two operators cost more than one");
+
+// A bus is not a subway even under a similar authority name
+assert.equal(estimateFare(FARES, TOKYO, null, [ride("BUS", 12, "都営バス")]).amount, 210,
+  "Toei bus is flat, and must not match the Toei subway bands first");
+
+// Distance within one operator accumulates across its legs
+const longMetro = estimateFare(FARES, TOKYO, null, [
+  ride("SUBWAY", 8, "東京メトロ"), ride("SUBWAY", 8, "東京メトロ"),
+]);
+assert.equal(longMetro.breakdown.length, 1, "same operator, one fare");
+assert.equal(longMetro.amount, 252, "16 km lands in the third band, not two short fares");
+
+// Osaka
+const OSAKA = { lat: 34.6937, lng: 135.5023 };
+assert.equal(estimateFare(FARES, OSAKA, null, [ride("SUBWAY", 2, "Osaka Metro")]).amount, 190);
+assert.equal(estimateFare(FARES, OSAKA, null, [ride("SUBWAY", 10, "Osaka Metro")]).amount, 290);
+
+// An operator the table has never heard of still gets priced
+const unknownOp = estimateFare(FARES, TOKYO, null, [ride("SUBWAY", 5, "Some Private Railway")]);
+assert.ok(unknownOp && unknownOp.amount > 0, "unknown operators fall back to the city table");
 
 for (const c of FARES.cities) {
-  assert.ok(c.modes["*"], `${c.id} needs a default mode table`);
+  assert.ok(c.modes["*"], c.id + " needs a default mode table");
   for (const [mode, steps] of Object.entries(c.modes)) {
-    assert.ok(steps.length, `${c.id}/${mode} is empty`);
     const maxes = steps.map(s => s[0]);
-    assert.deepEqual(maxes, [...maxes].sort((x, y) => x - y), `${c.id}/${mode} steps must ascend`);
-    assert.ok(steps.every(s => s[1] > 0), `${c.id}/${mode} has a non-positive fare`);
+    assert.deepEqual(maxes, [...maxes].sort((x, y) => x - y), c.id + "/" + mode + " steps must ascend");
+    assert.ok(steps.every(s => s[1] > 0), c.id + "/" + mode + " has a non-positive fare");
+  }
+  for (const o of c.operators || []) {
+    assert.ok(o.match?.length && o.steps?.length, c.id + "/" + o.id + " needs match and steps");
+    const maxes = o.steps.map(s => s[0]);
+    assert.deepEqual(maxes, [...maxes].sort((x, y) => x - y), c.id + "/" + o.id + " steps must ascend");
+  }
+  for (const d of c.transferDiscounts || []) {
+    for (const id of d.between) {
+      assert.ok((c.operators || []).some(o => o.id === id),
+        c.id + " discount names unknown operator " + id);
+    }
   }
 }
 

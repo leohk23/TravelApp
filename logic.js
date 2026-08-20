@@ -292,33 +292,76 @@ export function fareCity(table, point) {
   return best;
 }
 
+/** First operator whose name matches, or null. Order in the data decides. */
+function operatorFor(city, agency) {
+  const name = String(agency || "").toLowerCase();
+  if (!name) return null;
+  return (city.operators || []).find(o =>
+    (o.match || []).some(m => name.includes(String(m).toLowerCase()))) || null;
+}
+
+const stepAt = (steps, km) => (steps.find(([maxKm]) => km <= maxKm) || steps[steps.length - 1])[1];
+
 /**
  * A starting guess at what a journey costs, from the committed fare table.
  *
- * Only ever a suggestion: no agency publishes fares in its feed, so these are
- * hand-written approximations that go stale. A fare the traveller enters is
+ * Where a city lists operators, each charges separately and the fares are
+ * summed. That is not a refinement, it is how Tokyo works: riding Tokyo Metro
+ * and then Toei is two fares, and one city-wide table understates it badly.
+ * Named transfer discounts are then subtracted.
+ *
+ * Only ever a suggestion: no agency publishes fares in an open feed, so these
+ * are hand-written approximations that go stale. A fare the traveller enters is
  * remembered separately and takes precedence.
  *
- * Returns { amount, currency, city, mode } or null when the city is unknown.
+ * Returns { amount, currency, city, breakdown } or null when nothing was ridden
+ * or the city is unknown.
  */
-export function estimateFare(table, from, to, modes = []) {
-  // Walking is free. An empty mode list means no service was ridden, and
-  // falling through to the default table would price a stroll as a metro ride.
-  const ridden = modes.map(m => String(m || '').toUpperCase()).filter(Boolean);
+export function estimateFare(table, from, to, steps = []) {
+  // Walking is free. Nothing ridden means nothing to charge for.
+  const ridden = steps.filter(s => String(s?.mode || "").toUpperCase() !== "WALK");
   if (!ridden.length) return null;
 
   const city = fareCity(table, from);
   if (!city) return null;
 
-  // The mode you spend most of the journey on decides the table; a bus is
-  // priced differently from the metro even over the same distance.
-  const mode = ridden.find(m => city.modes[m]) || '*';
-  const steps = city.modes[mode] || city.modes['*'];
-  if (!steps?.length) return null;
+  // Distance per operator, taken from the routed legs where they carry one.
+  const byOperator = new Map();
+  let unmatchedKm = 0;
+  let unmatched = false;
+  for (const s of ridden) {
+    const km = s.metres != null ? s.metres / 1000 : 0;
+    const op = operatorFor(city, s.agency);
+    if (!op) { unmatched = true; unmatchedKm += km; continue; }
+    byOperator.set(op, (byOperator.get(op) || 0) + km);
+  }
 
-  const km = to ? kmBetween(from, to) : 0;
-  const hit = steps.find(([maxKm]) => km <= maxKm) || steps[steps.length - 1];
-  return { amount: hit[1], currency: city.currency, city: city.label, mode };
+  const breakdown = [];
+  for (const [op, km] of byOperator) {
+    breakdown.push({ operator: op.label || op.id, amount: stepAt(op.steps, km) });
+  }
+
+  // Anything from an operator the table does not know still has to be priced.
+  if (unmatched) {
+    const modes = ridden.map(s => String(s.mode || "").toUpperCase()).filter(Boolean);
+    const mode = modes.find(m => city.modes?.[m]) || "*";
+    const fallback = city.modes?.[mode] || city.modes?.["*"];
+    if (fallback?.length) {
+      const km = unmatchedKm > 0 ? unmatchedKm : (to ? kmBetween(from, to) : 0);
+      breakdown.push({ operator: city.label, amount: stepAt(fallback, km) });
+    }
+  }
+
+  if (!breakdown.length) return null;
+  let amount = breakdown.reduce((n, b) => n + b.amount, 0);
+
+  const ids = new Set([...byOperator.keys()].map(o => o.id));
+  for (const d of city.transferDiscounts || []) {
+    if ((d.between || []).every(id => ids.has(id))) amount -= d.amount;
+  }
+
+  amount = Math.max(0, Math.round(amount * 100) / 100);
+  return { amount, currency: city.currency, city: city.label, breakdown };
 }
 
 /** An instant rendered as a clock time where the traveller is, not where the device is. */

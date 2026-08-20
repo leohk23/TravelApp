@@ -1,117 +1,306 @@
 {
   "updated": "2026-08",
-  "note": "Approximate adult single fares on a contactless or stored-value card, written by hand and not fetched from any operator. Treat every figure as a starting guess: fares rise most years and vary by peak, operator and ticket type. A fare you enter yourself is remembered and always wins over these. Correct anything wrong here and it stays corrected.",
+  "note": "Approximate adult IC-card single fares, written by hand and not fetched from any operator: no Japanese or Hong Kong agency publishes fares in an open feed without registration. Treat every figure as a starting guess. A fare you enter yourself is remembered and always wins over these.",
   "steps": "Each mode is a list of [maxKm, price], matched on straight-line distance between the two stops. The last entry is the ceiling.",
   "cities": [
     {
       "id": "london",
       "label": "London",
       "currency": "GBP",
-      "lat": 51.5074, "lng": -0.1278, "radiusKm": 45,
+      "lat": 51.5074,
+      "lng": -0.1278,
+      "radiusKm": 45,
       "modes": {
-        "BUS": [[999, 1.75]],
-        "TRAM": [[999, 1.75]],
-        "*": [[6, 2.8], [12, 3.5], [20, 5.05], [999, 6.0]]
+        "BUS": [
+          [999, 1.75]
+        ],
+        "TRAM": [
+          [999, 1.75]
+        ],
+        "*": [
+          [6, 2.8],
+          [12, 3.5],
+          [20, 5.05],
+          [999, 6]
+        ]
       }
     },
     {
       "id": "hongkong",
       "label": "Hong Kong",
       "currency": "HKD",
-      "lat": 22.3193, "lng": 114.1694, "radiusKm": 40,
+      "lat": 22.3193,
+      "lng": 114.1694,
+      "radiusKm": 40,
       "modes": {
-        "BUS": [[8, 6.0], [20, 11.0], [999, 24.0]],
-        "FERRY": [[999, 6.0]],
-        "TRAM": [[999, 3.0]],
-        "*": [[3, 5.5], [8, 9.0], [15, 14.0], [30, 20.0], [999, 26.0]]
+        "BUS": [
+          [8, 6],
+          [20, 11],
+          [999, 24]
+        ],
+        "FERRY": [
+          [999, 6]
+        ],
+        "TRAM": [
+          [999, 3]
+        ],
+        "*": [
+          [3, 5.5],
+          [8, 9],
+          [15, 14],
+          [30, 20],
+          [999, 26]
+        ]
       }
     },
     {
       "id": "tokyo",
       "label": "Tokyo",
       "currency": "JPY",
-      "lat": 35.6812, "lng": 139.7671, "radiusKm": 55,
+      "lat": 35.6812,
+      "lng": 139.7671,
+      "radiusKm": 55,
       "modes": {
-        "BUS": [[999, 210]],
-        "*": [[6, 180], [11, 210], [19, 260], [27, 330], [999, 480]]
-      }
+        "BUS": [
+          [999, 210]
+        ],
+        "*": [
+          [6, 180],
+          [11, 210],
+          [19, 260],
+          [27, 330],
+          [999, 480]
+        ]
+      },
+      "operators": [
+        {
+          "id": "toei-bus",
+          "label": "Toei Bus",
+          "match": ["都営バス"],
+          "steps": [
+            [999, 210]
+          ]
+        },
+        {
+          "id": "tokyo-metro",
+          "label": "Tokyo Metro",
+          "match": ["東京メトロ", "tokyo metro"],
+          "steps": [
+            [6, 178],
+            [11, 208],
+            [19, 252],
+            [27, 283],
+            [40, 314],
+            [999, 346]
+          ]
+        },
+        {
+          "id": "toei",
+          "label": "Toei Subway",
+          "match": ["都営", "東京都交通局", "toei"],
+          "steps": [
+            [4, 178],
+            [9, 217],
+            [15, 283],
+            [21, 324],
+            [27, 364],
+            [999, 399]
+          ]
+        },
+        {
+          "id": "jr-east",
+          "label": "JR East",
+          "match": ["jr東日本", "jr east", "jr"],
+          "steps": [
+            [3, 146],
+            [6, 178],
+            [10, 208],
+            [15, 240],
+            [20, 330],
+            [25, 418],
+            [30, 506],
+            [999, 594]
+          ]
+        }
+      ],
+      "transferDiscounts": [
+        {
+          "between": ["tokyo-metro", "toei"],
+          "amount": 70
+        }
+      ]
     },
     {
       "id": "osaka",
       "label": "Osaka",
       "currency": "JPY",
-      "lat": 34.6937, "lng": 135.5023, "radiusKm": 40,
+      "lat": 34.6937,
+      "lng": 135.5023,
+      "radiusKm": 40,
       "modes": {
-        "BUS": [[999, 210]],
-        "*": [[3, 190], [7, 240], [13, 290], [999, 390]]
-      }
+        "BUS": [
+          [999, 210]
+        ],
+        "*": [
+          [3, 190],
+          [7, 240],
+          [13, 290],
+          [999, 390]
+        ]
+      },
+      "operators": [
+        {
+          "id": "osaka-bus",
+          "label": "Osaka City Bus",
+          "match": ["大阪シティバス", "osaka city bus"],
+          "steps": [
+            [999, 210]
+          ]
+        },
+        {
+          "id": "osaka-metro",
+          "label": "Osaka Metro",
+          "match": ["osaka metro", "大阪メトロ"],
+          "steps": [
+            [3, 190],
+            [7, 240],
+            [13, 290],
+            [19, 340],
+            [999, 390]
+          ]
+        },
+        {
+          "id": "jr-west",
+          "label": "JR West",
+          "match": ["jr西日本", "jr west", "jr"],
+          "steps": [
+            [3, 140],
+            [6, 170],
+            [10, 190],
+            [15, 230],
+            [20, 250],
+            [999, 330]
+          ]
+        }
+      ]
     },
     {
       "id": "singapore",
       "label": "Singapore",
       "currency": "SGD",
-      "lat": 1.3521, "lng": 103.8198, "radiusKm": 30,
+      "lat": 1.3521,
+      "lng": 103.8198,
+      "radiusKm": 30,
       "modes": {
-        "*": [[3.2, 1.19], [8.2, 1.55], [19, 2.02], [999, 2.37]]
+        "*": [
+          [3.2, 1.19],
+          [8.2, 1.55],
+          [19, 2.02],
+          [999, 2.37]
+        ]
       }
     },
     {
       "id": "taipei",
       "label": "Taipei",
       "currency": "TWD",
-      "lat": 25.033, "lng": 121.5654, "radiusKm": 35,
+      "lat": 25.033,
+      "lng": 121.5654,
+      "radiusKm": 35,
       "modes": {
-        "BUS": [[999, 15]],
-        "*": [[5, 20], [8, 25], [12, 30], [20, 40], [999, 55]]
+        "BUS": [
+          [999, 15]
+        ],
+        "*": [
+          [5, 20],
+          [8, 25],
+          [12, 30],
+          [20, 40],
+          [999, 55]
+        ]
       }
     },
     {
       "id": "seoul",
       "label": "Seoul",
       "currency": "KRW",
-      "lat": 37.5665, "lng": 126.978, "radiusKm": 45,
+      "lat": 37.5665,
+      "lng": 126.978,
+      "radiusKm": 45,
       "modes": {
-        "*": [[10, 1400], [15, 1500], [20, 1600], [999, 1800]]
+        "*": [
+          [10, 1400],
+          [15, 1500],
+          [20, 1600],
+          [999, 1800]
+        ]
       }
     },
     {
       "id": "bangkok",
       "label": "Bangkok",
       "currency": "THB",
-      "lat": 13.7563, "lng": 100.5018, "radiusKm": 40,
+      "lat": 13.7563,
+      "lng": 100.5018,
+      "radiusKm": 40,
       "modes": {
-        "BUS": [[999, 15]],
-        "*": [[2, 17], [5, 25], [10, 33], [999, 47]]
+        "BUS": [
+          [999, 15]
+        ],
+        "*": [
+          [2, 17],
+          [5, 25],
+          [10, 33],
+          [999, 47]
+        ]
       }
     },
     {
       "id": "paris",
       "label": "Paris",
       "currency": "EUR",
-      "lat": 48.8566, "lng": 2.3522, "radiusKm": 30,
+      "lat": 48.8566,
+      "lng": 2.3522,
+      "radiusKm": 30,
       "modes": {
-        "BUS": [[999, 2.5]],
-        "TRAM": [[999, 2.5]],
-        "*": [[999, 2.5]]
+        "BUS": [
+          [999, 2.5]
+        ],
+        "TRAM": [
+          [999, 2.5]
+        ],
+        "*": [
+          [999, 2.5]
+        ]
       }
     },
     {
       "id": "berlin",
       "label": "Berlin",
       "currency": "EUR",
-      "lat": 52.52, "lng": 13.405, "radiusKm": 35,
+      "lat": 52.52,
+      "lng": 13.405,
+      "radiusKm": 35,
       "modes": {
-        "*": [[3, 2.4], [999, 3.8]]
+        "*": [
+          [3, 2.4],
+          [999, 3.8]
+        ]
       }
     },
     {
       "id": "newyork",
       "label": "New York",
       "currency": "USD",
-      "lat": 40.7128, "lng": -74.006, "radiusKm": 40,
+      "lat": 40.7128,
+      "lng": -74.006,
+      "radiusKm": 40,
       "modes": {
-        "*": [[999, 2.9]]
+        "*": [
+          [999, 2.9]
+        ]
       }
     }
-  ]
+  ],
+  "operators": "Where a city lists operators, each one charges separately and the journey pays the sum, which is how Tokyo actually works. Matching is case-insensitive substring on the agency name, first match wins, so put specific names before general ones."
 }
