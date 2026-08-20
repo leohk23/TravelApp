@@ -320,3 +320,14 @@ export function estimateFare(table, from, to, modes = []) {
   const hit = steps.find(([maxKm]) => km <= maxKm) || steps[steps.length - 1];
   return { amount: hit[1], currency: city.currency, city: city.label, mode };
 }
+
+/** An instant rendered as a clock time where the traveller is, not where the device is. */
+export function fmtInstant(iso, timeZone) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(+d)) return '';
+  return new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    ...(timeZone ? { timeZone } : {}),
+  }).format(d);
+}

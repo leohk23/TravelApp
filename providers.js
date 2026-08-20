@@ -170,6 +170,18 @@ export async function route(from, to, when, signal) {
     summary: (best.legs || []).map(legLabel).join('  →  '),
     transfers: best.transfers ?? 0,
     arrival: arrival.toISOString(),
+    // Every step, walking included, so the journey can be shown in full.
+    steps: (best.legs || []).map(l => ({
+      mode: l.mode || '',
+      line: l.routeShortName || l.routeLongName || '',
+      headsign: l.headsign || '',
+      agency: l.agencyName || '',
+      from: l.from?.name || '', to: l.to?.name || '',
+      seconds: l.duration ?? 0,
+      metres: l.distance != null ? Math.round(l.distance) : null,
+      stops: l.intermediateStops?.length ?? null,
+      startTime: l.startTime || '', endTime: l.endTime || '',
+    })),
     // Which services you actually ride, used to recognise a repeated journey.
     lines: ridden.map(l => ({
       line: l.routeShortName || l.routeLongName || modeLabel(l.mode),

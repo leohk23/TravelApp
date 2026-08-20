@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, estimateFare, fareCity, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -180,5 +180,12 @@ for (const c of FARES.cities) {
     assert.ok(steps.every(s => s[1] > 0), `${c.id}/${mode} has a non-positive fare`);
   }
 }
+
+// --- step times belong to the destination, not the device ---
+assert.equal(fmtInstant("2026-09-01T09:02:00Z", "Asia/Hong_Kong"), "17:02");
+assert.equal(fmtInstant("2026-09-01T09:02:00Z", "Europe/London"), "10:02", "summer time applied");
+assert.equal(fmtInstant("2026-12-01T09:02:00Z", "Europe/London"), "09:02", "winter time applied");
+assert.equal(fmtInstant("", "Asia/Tokyo"), "", "no instant, no time");
+assert.equal(fmtInstant("not a date", "Asia/Tokyo"), "", "junk does not throw");
 
 console.log('all good');

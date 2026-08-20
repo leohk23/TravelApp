@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, estimateFare, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, estimateFare, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -915,6 +915,69 @@ function itemRow(d, row, ord) {
   return li;
 }
 
+/* ---------- the full journey, step by step ---------- */
+const STEP_ICON = {
+  WALK: '🚶', SUBWAY: '🚇', METRO: '🚇', BUS: '🚌', TRAM: '🚊',
+  RAIL: '🚆', REGIONAL_RAIL: '🚆', HIGHSPEED_RAIL: '🚄', FERRY: '⛴', COACH: '🚌',
+};
+const stepIcon = m => STEP_ICON[String(m || '').toUpperCase()] || '🚌';
+const prettyMode = m => String(m || '').toLowerCase().replace(/_/g, ' ');
+
+function openJourney(d, row) {
+  const leg = row.leg;
+  if (!leg) return;
+  const tz = d.timeZone || '';
+
+  $('#jTitle').textContent = `${d.items[row.from].name} to ${d.items[row.to].name}`;
+  const transfers = leg.transfers ?? 0;
+  $('#jSub').textContent = [
+    fmtDur(leg.seconds),
+    transfers ? `${transfers} change${transfers > 1 ? 's' : ''}` : 'no changes',
+  ].join(', ');
+
+  const steps = leg.steps || [];
+  const rows = [];
+  steps.forEach((s, i) => {
+    // A gap between one step ending and the next starting is time on a platform.
+    const prev = steps[i - 1];
+    if (prev?.endTime && s.startTime) {
+      const wait = Math.round((new Date(s.startTime) - new Date(prev.endTime)) / 1000);
+      if (wait >= 60) {
+        rows.push(`<li class="j-wait"><span class="j-time"></span>
+          <span class="j-body">wait ${esc(fmtDur(wait))}</span></li>`);
+      }
+    }
+
+    const walk = String(s.mode).toUpperCase() === 'WALK';
+    const title = walk
+      ? `Walk${s.metres != null ? ` ${s.metres} m` : ''}`
+      : `${esc(s.line || prettyMode(s.mode))}${s.headsign ? ` toward ${esc(s.headsign)}` : ''}`;
+    const detail = walk
+      ? (s.to && s.to !== 'END' ? `to ${esc(s.to)}` : '')
+      : [`${esc(s.from)} to ${esc(s.to)}`,
+         s.stops ? `${s.stops} stop${s.stops > 1 ? 's' : ''} between` : '',
+         esc(s.agency)].filter(Boolean).join('<br>');
+
+    rows.push(`<li class="j-step${walk ? ' walk' : ''}">
+      <span class="j-time">${esc(fmtInstant(s.startTime, tz))}</span>
+      <span class="j-icon">${stepIcon(s.mode)}</span>
+      <span class="j-body"><b>${title}</b>
+        ${detail ? `<small>${detail}</small>` : ''}
+        <small class="j-dur">${esc(fmtDur(s.seconds))}</small></span></li>`);
+  });
+
+  const last = steps[steps.length - 1];
+  if (last?.endTime) {
+    rows.push(`<li class="j-step arrive"><span class="j-time">${esc(fmtInstant(last.endTime, tz))}</span>
+      <span class="j-icon">📍</span>
+      <span class="j-body"><b>${esc(d.items[row.to].name)}</b></span></li>`);
+  }
+
+  $('#jSteps').innerHTML = rows.join('')
+    || '<li class="empty">No step detail for this journey. Recalculate to fetch it.</li>';
+  $('#journeyDlg').showModal();
+}
+$('#jDone').onclick = () => $('#journeyDlg').close();
 /* ---------- activity editor ---------- */
 let actIdx = null;
 let actNew = false;
@@ -1046,13 +1109,18 @@ function legRow(d, row) {
 
   li.innerHTML = `
     <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
-    <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
+    ${row.leg
+      ? `<button class="via" type="button" title="Show every step">${esc(row.leg.summary)}</button>`
+      : '<span class="via">no public transport found - walk it, or check the day has a date set</span>'}
     ${ridden && url ? `<a class="fare-link" href="${esc(url)}" target="_blank" rel="noopener"
        title="Operator fare information">fares</a>` : ''}
     ${ridden ? `<button class="fare${known != null ? ' known' : guess ? ' guess' : ''}"
       title="${known != null ? 'Remembered from the last time you rode this'
         : guess ? `Rough ${esc(guess.city)} fare, not from the operator. Tap to confirm or correct.`
         : 'Add what this leg cost'}">${shown}</button>` : ''}`;
+
+  li.querySelector('button.via')?.addEventListener('click',
+    () => openJourney(d, row));
 
   if (li.querySelector('.fare')) li.querySelector('.fare').onclick = async () => {
     const entered = await askText({
