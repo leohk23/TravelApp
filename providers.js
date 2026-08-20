@@ -70,7 +70,7 @@ function bboxAround({ lat, lng }, km) {
  * Type-ahead place search.
  *   near      {lat,lng} to search around - without it, brand names land anywhere
  *   tags      restrict to OSM categories, e.g. STAY_TAGS
- *   radiusKm  half-width of the hard bbox filter
+ *   radiusKm  half-width of the hard bbox filter, wide enough for a day trip
  *
  * `lat`/`lon` alone is only a weak nudge: "park hyatt" biased to Tokyo still
  * returns Chennai and Paris first. A bbox actually constrains it, so we box the
@@ -78,10 +78,19 @@ function bboxAround({ lat, lng }, km) {
  *
  * Returns [{ name, label, kind, lat, lng }].
  */
-export async function search(q, { near, tags, radiusKm = 60, limit = 6 } = {}, signal) {
-  const hits = await runSearch(q, { near, tags, limit, box: near ? bboxAround(near, radiusKm) : null }, signal);
-  if (hits.length || !near) return hits;
-  return runSearch(q, { near, tags, limit }, signal);   // box was too tight
+export async function search(q, { near, tags, radiusKm = 200, limit = 6 } = {}, signal) {
+  // lang=en matters as much here as it does for cities: without it an English
+  // query never reaches a Japanese name, so Hakone and Nikko were simply not
+  // found, and what came back was unreadable to an English-speaking traveller.
+  const opts = { near, tags, limit, lang: "en" };
+  if (!near) return runSearch(q, opts, signal);
+
+  // The box is wide enough for a day trip, not just the city: Mt Fuji, Hakone
+  // and Nikko are 80 to 140 km out and a 60 km box hid all of them. Still tight
+  // enough to keep "park hyatt" in Tokyo rather than Chennai.
+  const hits = await runSearch(q, { ...opts, box: bboxAround(near, radiusKm) }, signal);
+  if (hits.length) return hits;
+  return runSearch(q, opts, signal);   // nothing near, so look anywhere
 }
 
 async function runSearch(q, { near, tags, limit, box, lang }, signal) {
