@@ -9,7 +9,8 @@ const blankDay = () => ({ date: '', city: '', start: '09:00', items: [], legs: [
 const blank = () => ({
   name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
-  days: [blankDay()], dayIdx: 0,   // per-day local plans
+  days: [blankDay()], dayIdx: 0,   // per-day plans
+  split: 0.42,                     // list/map width ratio on the Day plan tab
   expenses: [],
 });
 
@@ -149,6 +150,7 @@ function drawMap() {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · transit <a href="https://transitous.org">Transitous</a>',
     }).addTo(map);
+    map.attributionControl.setPosition('bottomleft');   // frees the corner for the button
   }
   layer?.remove();
   const places = d.items.filter(isPlace);
@@ -160,6 +162,74 @@ function drawMap() {
   }).bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.address || '')}`))).addTo(map);
   L.polyline(places.map(p => [p.lat, p.lng]), { weight: 3, opacity: 0.6 }).addTo(layer);
   map.fitBounds(places.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 15 });
+}
+
+/* ---------- resizable list/map split ---------- */
+const MIN_SPLIT = 0.18, MAX_SPLIT = 0.82;
+const EXPAND_ICON = 'M3 3h7v2H5v5H3V3zm11 0h7v7h-2V5h-5V3zM3 14h2v5h5v2H3v-7zm16 0h2v7h-7v-2h5v-5z';
+const COLLAPSE_ICON = 'M10 3v5a2 2 0 0 1-2 2H3V8h5V3h2zm4 0h2v5h5v2h-5a2 2 0 0 1-2-2V3zM3 14h5a2 2 0 0 1 2 2v5H8v-5H3v-2zm13 0h5v2h-5v5h-2v-5a2 2 0 0 1 2-2z';
+
+function applySplit() {
+  const pane = $('#localCols').querySelector('.pane');
+  pane.style.flexBasis = `${(state.split ?? 0.42) * 100}%`;
+}
+
+{
+  const cols = $('#localCols');
+  const splitter = $('#localSplit');
+  let dragging = false;
+
+  const setFromX = clientX => {
+    const r = cols.getBoundingClientRect();
+    if (!r.width) return;
+    const next = (clientX - r.left) / r.width;
+    state.split = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, next));
+    applySplit();
+    map?.invalidateSize();
+  };
+
+  splitter.addEventListener('pointerdown', e => {
+    dragging = true;
+    splitter.setPointerCapture(e.pointerId);
+    splitter.classList.add('active');
+    e.preventDefault();
+  });
+  splitter.addEventListener('pointermove', e => { if (dragging) setFromX(e.clientX); });
+  splitter.addEventListener('pointerup', e => {
+    if (!dragging) return;
+    dragging = false;
+    try { splitter.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    splitter.classList.remove('active');
+    save();
+  });
+  splitter.addEventListener('pointercancel', () => {
+    dragging = false; splitter.classList.remove('active');
+  });
+
+  // Keyboard, because a drag handle with no alternative is unusable for some.
+  splitter.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 0.1 : 0.02;
+    if (e.key === 'ArrowLeft') state.split = Math.max(MIN_SPLIT, (state.split ?? 0.42) - step);
+    else if (e.key === 'ArrowRight') state.split = Math.min(MAX_SPLIT, (state.split ?? 0.42) + step);
+    else return;
+    e.preventDefault();
+    applySplit(); map?.invalidateSize(); save();
+  });
+
+  splitter.addEventListener('dblclick', () => {
+    state.split = 0.42; applySplit(); map?.invalidateSize(); save();
+  });
+
+  $('#mapFull').onclick = () => {
+    const full = cols.classList.toggle('mapfull');
+    const btn = $('#mapFull');
+    btn.title = full ? 'Show the list' : 'Expand map';
+    btn.querySelector('path').setAttribute('d', full ? COLLAPSE_ICON : EXPAND_ICON);
+    // Leaflet has to be told; the container changed size without a window resize.
+    setTimeout(() => map?.invalidateSize(), 0);
+  };
+
+  addEventListener('resize', () => map?.invalidateSize());
 }
 
 /* ---------- place search ---------- */
@@ -271,7 +341,7 @@ function mountSearch() {
   });
 }
 
-/* ---------- day tabs (shared by Itinerary and Local travel) ---------- */
+/* ---------- day tabs (shared by Itinerary and Day plan) ---------- */
 function renderDays() {
   const tabs = $('#dayTabs');
   tabs.innerHTML = '';
@@ -367,7 +437,7 @@ function bookingCard(b, { showDate = false } = {}) {
     <div class="brow">
       <input class="f-from grow" value="${esc(b.from || '')}" placeholder="${stay ? 'Address' : 'From'}">
       ${stay ? '' : `<span class="arrow">→</span><input class="f-to grow" value="${esc(b.to || '')}" placeholder="To">`}
-      ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button><button class="startday" title="Add as the first stop of this day under Local travel">start day here</button>' : ''}
+      ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button><button class="startday" title="Add as the first stop of this day under Day plan">start day here</button>' : ''}
     </div>
 
     <div class="brow">
@@ -561,7 +631,7 @@ function hintRow(text) {
   return li;
 }
 
-/* ---------- local travel ---------- */
+/* ---------- day plan ---------- */
 let dragFrom = null;
 
 function renderPlan() {
@@ -1305,6 +1375,7 @@ $('#addExpense').onsubmit = e => {
 
 for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => showTab(b.dataset.tab);
 
+applySplit();
 $('#env').hidden = !location.pathname.includes('/preview/');
 
 // Installs the app shell so it opens instantly and works with no signal.

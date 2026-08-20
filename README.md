@@ -41,13 +41,14 @@ Two things worth knowing:
 
 Three ribbon tabs, with the day tabs shared between the first two.
 
-**Itinerary** — flights, trains, ferries and hotels for the selected day. Hotels
+**Itinerary** — flights, trains, ferries and hotels, browsable by category (All,
+Stays, Transport, This day) with a search over names and confirmation numbers. Hotels
 match every night from check-in to check-out, so you always see where you sleep.
 Each booking holds a confirmation number, cost and notes. `+ expense` files a
 booking's cost into Expenses; `start day here` drops a hotel in as the day's
 first stop.
 
-**Local travel** — search a place to add it, drag the ⠿ handle to reorder, and
+**Day plan** — search a place to add it, drag the ⠿ handle to reorder, and
 transit legs recompute with real line numbers and stop names. **Optimise**
 reorders by geographic proximity, then re-looks-up the transit. Edit a stop's
 name inline; edit the minutes to change how long you stay.
