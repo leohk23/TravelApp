@@ -114,8 +114,9 @@
           <textarea id="poiInput" rows="1" placeholder="…or paste addresses, one per line, then Add"></textarea>
           <button>Add</button>
         </form>
-        <p class="credit">Places from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ·
-          transit from <a href="https://transitous.org">Transitous</a> · no API key, no billing</p>
+        <p class="credit">Places from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>,
+          transit from <a href="https://transitous.org">Transitous</a>.
+          <span class="credit-note">No API key, no billing.</span></p>
       </div>
 
       <div class="splitter" id="localSplit" role="separator"
@@ -216,6 +217,35 @@
   <div class="wiz-foot">
     <span class="spacer"></span>
     <button id="ddDone" type="button" class="primary">Done</button>
+  </div>
+</dialog>
+
+<dialog id="actDlg">
+  <div class="ask-head">
+    <h2 id="actTitle">Stop</h2>
+    <p id="actAddr"></p>
+  </div>
+  <div class="wiz-body">
+    <label>Name<input id="actName" autocomplete="off"></label>
+    <label>Time spent here
+      <div class="dur-row">
+        <input type="number" id="actMin" min="0" step="5"><span class="unit">min</span>
+        <span class="spacer"></span>
+        <div class="presets" id="actPresets">
+          <button type="button" data-min="30">30m</button>
+          <button type="button" data-min="60">1h</button>
+          <button type="button" data-min="90">1½h</button>
+          <button type="button" data-min="120">2h</button>
+        </div>
+      </div>
+    </label>
+    <label>Notes<textarea id="actNotes" rows="3"
+      placeholder="Tickets, opening hours, what to order…"></textarea></label>
+  </div>
+  <div class="wiz-foot">
+    <button id="actDelete" type="button" class="danger">Delete</button>
+    <span class="spacer"></span>
+    <button id="actDone" type="button" class="primary">Done</button>
   </div>
 </dialog>
 

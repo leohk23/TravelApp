@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, geocode, route, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -10,7 +10,7 @@ const blank = () => ({
   name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day plans
-  split: 0.42,                     // list/map width ratio on the Day plan tab
+  split: 0.6,                      // list/map width ratio on the Day plan tab
   expenses: [],
 });
 
@@ -20,6 +20,9 @@ for (const d of state.days) {          // days carried `pois` before free-form i
   if (d.pois && !d.items) { d.items = d.pois; delete d.pois; }
   d.items ||= [];
 }
+// The map used to take the larger half. Nudge anyone still on that exact
+// default onto the new one, but leave a ratio they actually chose alone.
+if (state.split === 0.42) state.split = 0.6;
 const save = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -148,7 +151,7 @@ function drawMap() {
     map = L.map('map').setView([22.302, 114.17], 11);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · transit <a href="https://transitous.org">Transitous</a>',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, transit <a href="https://transitous.org">Transitous</a>',
     }).addTo(map);
     map.attributionControl.setPosition('bottomleft');   // frees the corner for the button
   }
@@ -171,7 +174,7 @@ const COLLAPSE_ICON = 'M10 3v5a2 2 0 0 1-2 2H3V8h5V3h2zm4 0h2v5h5v2h-5a2 2 0 0 1
 
 function applySplit() {
   const pane = $('#localCols').querySelector('.pane');
-  pane.style.flexBasis = `${(state.split ?? 0.42) * 100}%`;
+  pane.style.flexBasis = `${(state.split ?? 0.6) * 100}%`;
 }
 
 {
@@ -209,15 +212,15 @@ function applySplit() {
   // Keyboard, because a drag handle with no alternative is unusable for some.
   splitter.addEventListener('keydown', e => {
     const step = e.shiftKey ? 0.1 : 0.02;
-    if (e.key === 'ArrowLeft') state.split = Math.max(MIN_SPLIT, (state.split ?? 0.42) - step);
-    else if (e.key === 'ArrowRight') state.split = Math.min(MAX_SPLIT, (state.split ?? 0.42) + step);
+    if (e.key === 'ArrowLeft') state.split = Math.max(MIN_SPLIT, (state.split ?? 0.6) - step);
+    else if (e.key === 'ArrowRight') state.split = Math.min(MAX_SPLIT, (state.split ?? 0.6) + step);
     else return;
     e.preventDefault();
     applySplit(); map?.invalidateSize(); save();
   });
 
   splitter.addEventListener('dblclick', () => {
-    state.split = 0.42; applySplit(); map?.invalidateSize(); save();
+    state.split = 0.6; applySplit(); map?.invalidateSize(); save();
   });
 
   $('#mapFull').onclick = () => {
@@ -317,7 +320,7 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
     list.replaceChildren(...hits.map((h, i) => {
       const li = document.createElement('li');
       li.className = i === cursor ? 'on' : '';
-      li.innerHTML = `<b>${esc(h.name)}</b><small>${esc([h.kind, h.label].filter(Boolean).join(' · '))}</small>`;
+      li.innerHTML = `<b>${esc(h.name)}</b>${h.kind ? `<span class="ac-kind">${esc(h.kind)}</span>` : ''}${h.label ? `<small>${esc(h.label)}</small>` : ''}`;
       li.onmousedown = e => { e.preventDefault(); pick(i); };
       return li;
     }));
@@ -378,8 +381,9 @@ function renderDays() {
   state.days.forEach((d, i) => {
     const b = document.createElement('button');
     b.className = 'tab' + (i === state.dayIdx ? ' on' : '');
-    b.textContent = [`Day ${i + 1}`, d.date && d.date.slice(5), showCity && d.city]
-      .filter(Boolean).join(' · ');
+    b.innerHTML = `<span class="t-n">Day ${i + 1}</span>`
+      + (d.date ? `<span class="t-d">${esc(fmtDayLabel(d.date))}</span>` : '')
+      + (showCity && d.city ? `<span class="t-c">${esc(d.city)}</span>` : '');
     b.onclick = () => { state.dayIdx = i; save(); render(); };
     tabs.append(b);
   });
@@ -556,7 +560,7 @@ function bookingCard(b, { showDate = false } = {}) {
   li.querySelector('.bill').onclick = () => {
     if (billed) state.expenses = state.expenses.filter(e => e.src !== b.id);
     else state.expenses.push({
-      desc: [b.kind, b.ref, b.from && b.to ? `${b.from} → ${b.to}` : b.from].filter(Boolean).join(' · '),
+      desc: [b.kind, b.ref, b.from && b.to ? `${b.from} → ${b.to}` : b.from].filter(Boolean).join(', '),
       amount: +b.cost, payer: state.members[0], sharedBy: [...state.members], src: b.id,
     });
     save(); render();
@@ -660,8 +664,9 @@ function renderItinerary() {
 
   const total = shown.reduce((s, b) => s + (+b.cost || 0), 0);
   const all = state.itinerary.length;
-  $('#bookTotal').textContent = all
-    ? `${shown.length}${shown.length === all ? '' : ` of ${all}`} · ${state.currency} ${total.toFixed(2)}`
+  $('#bookTotal').innerHTML = all
+    ? `<span class="count">${shown.length}${shown.length === all ? '' : ` of ${all}`} booking${all === 1 ? '' : 's'}</span>`
+      + `<span class="money">${esc(state.currency)} ${total.toFixed(2)}</span>`
     : '';
 }
 
@@ -714,22 +719,19 @@ function itemRow(d, row, ord) {
   const it = d.items[row.i];
   const li = document.createElement('li');
   li.className = 'stop' + (row.place ? '' : ' note');
+  const sub = it.notes || (row.place ? it.address : '') || '';
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
     <div class="marker">${row.place ? ord.get(row.i) : '•'}</div>
     <div class="when">${fmtTime(row.arrive)}<small>${fmtTime(row.depart)}</small></div>
-    <div class="what">
-      <input class="rename" value="${esc(it.name || '')}" aria-label="Name"
-             placeholder="${row.place ? 'Stop name' : 'What are you doing?'}">
-      ${row.place ? `<small>${esc(it.address || '')}</small>` : ''}
-    </div>
-    <label class="stay"><input class="stay-in" type="number" min="0" step="15" value="${it.stayMin ?? 60}">min</label>
-    <button class="x" title="Remove">✕</button>`;
+    <button class="what-btn" type="button">
+      <b>${esc(it.name || (row.place ? 'Unnamed stop' : 'What are you doing?'))}</b>
+      ${sub ? `<small>${it.notes ? '✎ ' : ''}${esc(sub)}</small>` : ''}
+    </button>
+    ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}`;
 
-  li.querySelector('.rename').onchange = e => { it.name = e.target.value.trim(); save(); render(); };
-  li.querySelector('.stay-in').onchange = e => { it.stayMin = +e.target.value; save(); recalc(); };
-  li.querySelector('.x').onclick = () => { d.items.splice(row.i, 1); save(); recalc(); };
-  // draggable only from the grip, so the name field stays selectable
+  li.querySelector('.what-btn').onclick = () => openActivity(row.i);
+  // draggable only from the grip, so a tap on the row still opens the editor
   li.querySelector('.grip').onmousedown = () => { li.draggable = true; };
   li.ondragstart = e => { dragFrom = row.i; e.dataTransfer.effectAllowed = 'move'; li.classList.add('dragging'); };
   li.ondragend = () => { li.draggable = false; li.classList.remove('dragging'); };
@@ -743,6 +745,61 @@ function itemRow(d, row, ord) {
   };
   return li;
 }
+
+/* ---------- activity editor ---------- */
+let actIdx = null;
+
+function openActivity(i) {
+  actIdx = i;
+  const it = day().items[i];
+  if (!it) return;
+  $('#actTitle').textContent = isPlace(it) ? 'Stop' : 'Entry';
+  $('#actAddr').textContent = it.address || '';
+  $('#actAddr').hidden = !it.address;
+  $('#actName').value = it.name || '';
+  $('#actMin').value = it.stayMin ?? 60;
+  $('#actNotes').value = it.notes || '';
+  $('#actDlg').showModal();
+  $('#actName').focus();
+}
+
+/** Reads the dialog back into the item. Returns true if routing must redo. */
+function commitActivity() {
+  const it = day().items[actIdx];
+  if (!it) return false;
+  const mins = Math.max(0, +$('#actMin').value || 0);
+  const timingChanged = mins !== (it.stayMin ?? 60);
+  it.name = $('#actName').value.trim();
+  it.stayMin = mins;
+  const notes = $('#actNotes').value.trim();
+  if (notes) it.notes = notes; else delete it.notes;
+  save();
+  return timingChanged;
+}
+
+$('#actDone').onclick = () => $('#actDlg').close('ok');
+$('#actPresets').onclick = e => {
+  const b = e.target.closest('[data-min]');
+  if (b) $('#actMin').value = b.dataset.min;
+};
+$('#actDelete').onclick = async () => {
+  const it = day().items[actIdx];
+  $('#actDlg').close();                       // stacked modals fight over focus
+  const ok = await ask({
+    title: `Remove ${it?.name || 'this stop'}?`,
+    confirm: 'Remove', danger: true,
+  });
+  if (!ok) return;
+  day().items.splice(actIdx, 1);
+  actIdx = null;
+  save(); recalc();
+};
+$('#actDlg').addEventListener('close', () => {
+  if (actIdx === null) return;
+  const needsRoute = commitActivity();
+  actIdx = null;
+  if (needsRoute) recalc(); else render();
+});
 
 function legRow(d, row) {
   const li = document.createElement('li');
@@ -779,7 +836,7 @@ function renderMoney() {
     const li = document.createElement('li');
     li.className = 'expense';
     li.innerHTML = `
-      <div class="what"><b>${esc(e.desc)}</b><small>paid by ${esc(e.payer)}${e.src ? ' · from Itinerary' : ''}</small></div>
+      <div class="what"><b>${esc(e.desc)}</b><small>paid by ${esc(e.payer)}</small>${e.src ? '<span class="chip src">from Itinerary</span>' : ''}</div>
       <div class="amt">${esc(state.currency)} ${(+e.amount).toFixed(2)}</div>
       <div class="chips"></div>
       <button class="x" title="Remove">✕</button>`;
@@ -821,12 +878,16 @@ function renderOverview() {
   if (document.activeElement !== el) el.value = state.name;   // never fight the caret
   const dated = state.days.filter(d => d.date).map(d => d.date).sort();
 
-  $('#ovMeta').textContent = [
-    `${state.days.length} day${state.days.length > 1 ? 's' : ''}`,
-    dated.length ? `${wkday(dated[0])} – ${wkday(dated[dated.length - 1])}` : null,
-    [...new Set(state.days.map(d => d.city).filter(Boolean))].join(' · ') || null,
-    state.members.join(', '),
-  ].filter(Boolean).join('  ·  ');
+  const cities = [...new Set(state.days.map(d => d.city).filter(Boolean))];
+  const facts = [
+    ['Days', `${state.days.length}`],
+    dated.length ? ['When', `${wkday(dated[0])} – ${wkday(dated[dated.length - 1])}`] : null,
+    cities.length ? [cities.length > 1 ? 'Cities' : 'City', cities.join(', ')] : null,
+    ['Party', state.members.join(', ')],
+  ].filter(Boolean);
+  $('#ovMeta').innerHTML = facts
+    .map(([k, v]) => `<span class="fact"><span class="k">${k}</span>${esc(v)}</span>`)
+    .join('');
 
   const showCity = multiCity();
   $('#ovDays').replaceChildren(...state.days.map((d, i) => {
@@ -1435,8 +1496,7 @@ $('#addPoi').onsubmit = async e => {
 $('#addNote').onclick = () => {
   day().items.push({ name: '', stayMin: 30 });   // no coords, so never routed
   save(); renderPlan();
-  const notes = document.querySelectorAll('#stops .stop.note .rename');
-  notes[notes.length - 1]?.focus();
+  openActivity(day().items.length - 1);          // straight into the editor
 };
 $('#printBtn').onclick = () => window.print();
 $('#optimise').onclick = optimize;

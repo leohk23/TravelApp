@@ -96,7 +96,7 @@ const modeLabel = m => (m || '').toLowerCase().replace(/_/g, ' ');
 function legLabel(l) {
   if (l.mode === 'WALK') return `walk ${Math.round(l.duration / 60)} min`;
   const line = l.routeShortName || l.routeLongName || modeLabel(l.mode);
-  return `${line} · ${l.from?.name ?? '?'} → ${l.to?.name ?? '?'}`;
+  return `${line}  ${l.from?.name ?? '?'} → ${l.to?.name ?? '?'}`;
 }
 
 /**

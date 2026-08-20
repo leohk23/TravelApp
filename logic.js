@@ -157,3 +157,12 @@ export function datesFrom(startISO, n) {
     return s;
   });
 }
+
+/** Compact stay length for a crowded row: 30 -> "30m", 90 -> "1h 30m". */
+export function fmtStay(min) {
+  const n = Math.max(0, Math.round(min || 0));
+  if (!n) return '';
+  const h = Math.floor(n / 60), m = n % 60;
+  if (!h) return `${m}m`;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}

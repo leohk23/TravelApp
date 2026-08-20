@@ -52,6 +52,33 @@ the browser, which is why it needs an HTTP server rather than `file://`.
   `display:` rule on the same element silently defeats the `hidden` attribute —
   which is exactly how the three ribbon sections once all rendered at once.
 
+## Mobile first, desktop second
+
+This is a trip planner. It gets used standing in a station, not sitting at a
+desk, and it installs to a home screen. **Design the phone layout first and let
+the desktop one be the adaptation**, not the other way round.
+
+In practice:
+
+- Base CSS is the phone layout. Widen it in `@media (min-width: …)` blocks.
+  Never write a desktop layout and shrink it in `max-width` blocks.
+- Every control is touch-sized (`--tap`, 40px+) before it is anything else.
+- Nothing important may depend on hover: hover does not exist on a phone.
+- Check a change on a narrow viewport before a wide one. If it only works
+  wide, it does not work.
+
+## Writing the interface
+
+- **Never separate facts with a middle dot.** No `Aug 20 · Tokyo · Me`. A dot
+  chain flattens unrelated things into one grey run that has to be parsed word
+  by word. Give each fact its own element and let spacing, weight, colour or a
+  short label do the separating. If they genuinely belong in one sentence, use a
+  comma and write the sentence.
+- Prefer a label over a separator when the reader cannot infer what a value is.
+  `Party  Alice, Bob` beats `Alice, Bob` floating between two dots.
+- Say what a thing is, not what category it belongs to. "3 of 7 bookings" beats
+  "3/7".
+
 ## State
 
 One object in `localStorage['travelapp']`, written by `save()`:

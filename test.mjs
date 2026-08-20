@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -86,5 +86,10 @@ assert.deepEqual(datesFrom("2026-04-14", 0), [], "empty range");
 
 assert.equal(fmtTime(1500), '01:00 +1');
 assert.equal(fmtDur(5400), '1h 30');
+assert.equal(fmtStay(30), '30m');
+assert.equal(fmtStay(60), '1h');
+assert.equal(fmtStay(90), '1h 30m');
+assert.equal(fmtStay(0), '', 'no chip for a zero-length stop');
+assert.equal(fmtStay(undefined), '');
 
 console.log('all good');
