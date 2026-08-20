@@ -7,7 +7,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const blankDay = () => ({ date: '', city: '', start: '09:00', items: [], legs: [] });
 const blank = () => ({
-  name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview',
+  name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day local plans
   expenses: [],
@@ -324,15 +324,28 @@ const newBooking = (kind, start = '') =>
   ({ id: crypto.randomUUID(), kind, ref: '', from: '', to: '', start, end: '', conf: '', cost: 0, notes: '' });
 
 /** Nights for a stay; nothing for transport, whose local times cross time zones. */
+const timeOf = dt => (dt && dt.length > 10 ? dt.slice(11, 16) : '');
+
 function spanLabel(b) {
   if (!b.start || !b.end || !isStay(b.kind)) return '';
-  const nights = Math.round((new Date(b.end) - new Date(b.start)) / 86400000);
+  // Compare dates only: a stay may carry no time at all.
+  const nights = Math.round((parseISO(dateOf(b.end)) - parseISO(dateOf(b.start))) / dayMs);
   return nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : '';
 }
 
-function bookingCard(b) {
+/** What the range button on a stay card reads. */
+function stayLabel(b) {
+  if (!b.start) return 'Set check-in and check-out';
+  const t1 = timeOf(b.start), t2 = timeOf(b.end);
+  const from = fmtDayLabel(b.start) + (t1 ? ` ${t1}` : '');
+  const to = b.end ? fmtDayLabel(b.end) + (t2 ? ` ${t2}` : '') : '?';
+  return `${from}  →  ${to}`;
+}
+
+function bookingCard(b, { showDate = false } = {}) {
   const stay = isStay(b.kind);
   const billed = state.expenses.some(e => e.src === b.id);
+  const orphan = !onSomeDay(b);
   const li = document.createElement('li');
   li.className = 'booking' + (stay ? ' is-stay' : '');
   li.dataset.bid = b.id;
@@ -343,6 +356,8 @@ function bookingCard(b) {
       ${stay
         ? `<span class="ac grow"><input class="f-ref" value="${esc(b.ref || '')}" placeholder="Search a hotel…" autocomplete="off"></span>`
         : `<input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="Flight / service no.">`}
+      ${showDate && b.start ? `<span class="when-chip">${esc(fmtDayLabel(b.start))}</span>` : ''}
+      ${orphan ? '<span class="chip warn" title="This booking is not on any day of the trip">off-trip</span>' : ''}
       <span class="spacer"></span>
       <button class="bill${billed ? ' on' : ''}"${+b.cost > 0 ? '' : ' disabled'}
         title="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}">${billed ? '✓ expensed' : '+ expense'}</button>
@@ -356,8 +371,10 @@ function bookingCard(b) {
     </div>
 
     <div class="brow">
-      <label>${stay ? 'Check in' : 'Depart'}<input type="datetime-local" class="f-start" value="${esc(b.start || '')}"></label>
-      <label>${stay ? 'Check out' : 'Arrive'}<input type="datetime-local" class="f-end" value="${esc(b.end || '')}"></label>
+      ${stay
+        ? `<button class="daterange grow" type="button">${esc(stayLabel(b))}</button>`
+        : `<label>Depart<input type="datetime-local" class="f-start" value="${esc(b.start || '')}"></label>
+           <label>Arrive<input type="datetime-local" class="f-end" value="${esc(b.end || '')}"></label>`}
       <small class="span">${esc(spanLabel(b))}</small>
     </div>
 
@@ -382,6 +399,21 @@ function bookingCard(b) {
   bind('.f-to', 'to');
   bind('.f-start', 'start', true);
   bind('.f-end', 'end', true);
+
+  li.querySelector('.daterange')?.addEventListener('click', async () => {
+    const res = await pickRange({
+      title: b.ref || 'Hotel dates',
+      range: b.start ? [dateOf(b.start), dateOf(b.end || b.start)] : null,
+      t1: timeOf(b.start),
+      t2: timeOf(b.end),
+    });
+    if (!res) return;
+    // Times are optional: without one the value stays date-only, which every
+    // day-matching helper already handles because they all slice to 10 chars.
+    b.start = res.start ? res.start + (res.t1 ? `T${res.t1}` : '') : '';
+    b.end = res.end ? res.end + (res.t2 ? `T${res.t2}` : '') : '';
+    save(); render();
+  });
   bind('.f-conf', 'conf');
   bind('.f-cost', 'cost', true);
   bind('.f-notes', 'notes');
@@ -446,34 +478,87 @@ function bookingCard(b) {
   return li;
 }
 
+/** True when a booking lands on at least one day of the trip. */
+function onSomeDay(b) {
+  return state.days.some(x => x.date && (isStay(b.kind) ? staysOn(b, x.date) : movesOn(b, x.date)));
+}
+
+const fmtDayLabel = dt => (dt
+  ? new Date(`${dt.slice(0, 10)}T00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  : '');
+
+const haystack = b => [b.kind, b.ref, b.from, b.to, b.conf, b.notes]
+  .filter(Boolean).join(' ').toLowerCase();
+
+let itinQuery = '';
+
 function renderItinerary() {
+  const view = state.itinView || 'all';
   const d = day().date;
-  state.itinerary.sort((a, b) => (a.start || '~').localeCompare(b.start || '~'));
+  const q = itinQuery.trim().toLowerCase();
 
-  // With no date on the day there is nothing to file against, so show everything.
-  const all = !d;
-  $('#noDate').hidden = !all || !state.itinerary.length;
-
-  const stays = state.itinerary.filter(b => all ? isStay(b.kind) : staysOn(b, d));
-  const moves = state.itinerary.filter(b => all ? !isStay(b.kind) : movesOn(b, d));
-  // Anything that lands on no day at all - undated, or dated outside the trip -
-  // would otherwise be invisible from every tab.
-  const onSomeDay = b => state.days.some(x => x.date && (isStay(b.kind) ? staysOn(b, x.date) : movesOn(b, x.date)));
-  const loose = all ? [] : state.itinerary.filter(b => !onSomeDay(b));
-
-  fill('#stays', stays, 'Nowhere booked for this night.');
-  fill('#transport', moves, 'Nothing scheduled to move you on this day.');
-  fill('#undated', loose, '');
-  $('#undatedGroup').hidden = !loose.length;
-
-  const total = state.itinerary.reduce((s, b) => s + (+b.cost || 0), 0);
-  $('#bookTotal').textContent = total ? `Bookings total ${state.currency} ${total.toFixed(2)}` : '';
-
-  function fill(sel, items, emptyMsg) {
-    const ul = $(sel);
-    ul.replaceChildren(...items.map(bookingCard));
-    if (!items.length && emptyMsg) ul.innerHTML = `<li class="empty">${emptyMsg}</li>`;
+  for (const btn of document.querySelectorAll('[data-iv]')) {
+    btn.classList.toggle('on', btn.dataset.iv === view);
   }
+
+  state.itinerary.sort((a2, b2) => (a2.start || '~').localeCompare(b2.start || '~'));
+
+  let shown = state.itinerary;
+  if (view === 'stays') shown = shown.filter(b => isStay(b.kind));
+  else if (view === 'transport') shown = shown.filter(b => !isStay(b.kind));
+  else if (view === 'day') {
+    shown = d
+      ? shown.filter(b => (isStay(b.kind) ? staysOn(b, d) : movesOn(b, d)))
+      : shown;
+  }
+  if (q) shown = shown.filter(b => haystack(b).includes(q));
+
+  const list = $('#bookings');
+
+  if (view === 'day') {
+    // In day context the accommodation/transport split is genuinely useful.
+    const stays = shown.filter(b => isStay(b.kind));
+    const moves = shown.filter(b => !isStay(b.kind));
+    list.replaceChildren(
+      groupHead('Staying'),
+      ...(stays.length ? stays.map(b => bookingCard(b)) : [emptyRow('Nowhere booked for this night.')]),
+      groupHead('Getting there'),
+      ...(moves.length ? moves.map(b => bookingCard(b)) : [emptyRow('Nothing scheduled to move you today.')]),
+    );
+    if (!d) list.prepend(hintRow('This day has no date, so every booking is listed. Set one under ⋯.'));
+  } else {
+    list.replaceChildren(...shown.map(b => bookingCard(b, { showDate: true })));
+    if (!shown.length) {
+      list.append(emptyRow(q
+        ? `Nothing matches "${itinQuery}".`
+        : 'No bookings here yet. Add a hotel or a flight above.'));
+    }
+  }
+
+  const total = shown.reduce((s, b) => s + (+b.cost || 0), 0);
+  const all = state.itinerary.length;
+  $('#bookTotal').textContent = all
+    ? `${shown.length}${shown.length === all ? '' : ` of ${all}`} · ${state.currency} ${total.toFixed(2)}`
+    : '';
+}
+
+function groupHead(text) {
+  const li = document.createElement('li');
+  li.className = 'grouphead';
+  li.textContent = text;
+  return li;
+}
+function emptyRow(text) {
+  const li = document.createElement('li');
+  li.className = 'empty';
+  li.textContent = text;
+  return li;
+}
+function hintRow(text) {
+  const li = document.createElement('li');
+  li.className = 'hint';
+  li.textContent = text;
+  return li;
 }
 
 /* ---------- local travel ---------- */
@@ -605,8 +690,10 @@ const wkday = iso => iso
   : 'no date';
 
 function renderOverview() {
+  const el = $("#tripName");
+  if (document.activeElement !== el) el.value = state.name;   // never fight the caret
   const dated = state.days.filter(d => d.date).map(d => d.date).sort();
-  $('#ovTitle').textContent = state.name;
+
   $('#ovMeta').textContent = [
     `${state.days.length} day${state.days.length > 1 ? 's' : ''}`,
     dated.length ? `${wkday(dated[0])} – ${wkday(dated[dated.length - 1])}` : null,
@@ -638,7 +725,7 @@ function renderOverview() {
 
       ${moves.length ? `<div class="ovline"><span class="k">Moving</span><span>${moves.map(b =>
         `${ICON[b.kind] || ''} ${esc(b.ref || b.kind)}${b.from || b.to ? ` ${esc(b.from)} → ${esc(b.to)}` : ''}${
-          b.start ? ` at ${esc(b.start.slice(11, 16))}` : ''}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
+          timeOf(b.start) ? ` at ${esc(timeOf(b.start))}` : ''}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
       ).join('<br>')}</span></div>` : ''}
 
       ${d.items.length ? `<ol class="ovstops">${rows.filter(r => r.type === 'item').map(r => `
@@ -654,19 +741,26 @@ function renderOverview() {
 
 /* ---------- shell ---------- */
 function render() {
-  $('#tripName').value = state.name;
   renderDays(); renderOverview(); renderItinerary(); renderPlan(); renderMoney();
+}
+
+/** The day strip only applies to views that are actually scoped to a day. */
+function syncChrome() {
+  const t = state.tab;
+  const dayScoped = t === 'local' || (t === 'itinerary' && (state.itinView || 'all') === 'day');
+  $('#daystrip').hidden = !dayScoped;
 }
 
 function showTab(name) {
   state.tab = name;
+  render();          // pick up edits made under another tab
   for (const b of document.querySelectorAll('[data-tab]')) {
     const on = b.dataset.tab === name;
     b.classList.toggle('on', on);
     b.setAttribute('aria-selected', on);
     $('#' + b.dataset.tab).hidden = !on;
   }
-  $('#daystrip').hidden = name === 'money' || name === 'overview';
+  syncChrome();
   // Leaflet measures 0x0 while its container is hidden.
   if (name === 'local') setTimeout(() => map?.invalidateSize(), 0);
   save();
@@ -784,17 +878,13 @@ $('#wizard').addEventListener('keydown', e => {
 
 /* ---------- wiring ---------- */
 $('#tripName').oninput = e => { state.name = e.target.value; save(); };
+$('#tripName').onchange = () => renderOverview();   // refresh the meta line under it
 
-/* ---------- range calendar: drag across the days you are travelling ---------- */
-let calMonth = new Date();
-let calAnchor = null;        // first tap of a two-tap selection
-let calPreview = null;       // [startISO, endISO] while dragging
-const calCells = new Map();  // iso -> button
-
+/* ---------- reusable range calendar ---------- */
 const dayMs = 86400000;
-const isoOf = d => isoDate(d);
 const parseISO = iso => new Date(`${iso}T00:00`);
-const orderPair = (a2, b2) => (a2 <= b2 ? [a2, b2] : [b2, a2]);
+const orderPair = (x, y) => (x <= y ? [x, y] : [y, x]);
+const spanDays = (s, e) => Math.round((parseISO(e) - parseISO(s)) / dayMs) + 1;
 
 /** Monday in most of the world, Sunday in some. Fall back to Monday. */
 function weekStart() {
@@ -805,121 +895,171 @@ function weekStart() {
   return 1;
 }
 
+/**
+ * Builds a month calendar inside `host` that selects a date range by dragging
+ * or by tapping the two ends.
+ *
+ *   getRange()  -> [startISO, endISO] | null, the range to highlight
+ *   onRange(s,e)-> called once a selection settles
+ *
+ * Pointer Events cover mouse and touch in one path. The grid keeps the capture
+ * and elementFromPoint finds the cell under the finger, because touch pointer
+ * events keep targeting whatever the gesture started on.
+ */
+function makeCalendar(host, { getRange, onRange, hint = '' }) {
+  host.classList.add('cal');
+  host.innerHTML = `
+    <div class="cal-head">
+      <button class="cal-prev icon" type="button" aria-label="Previous month">‹</button>
+      <strong class="cal-label"></strong>
+      <button class="cal-next icon" type="button" aria-label="Next month">›</button>
+      <span class="spacer"></span>
+      <small class="cal-count"></small>
+    </div>
+    <div class="cal-dow"></div>
+    <div class="cal-grid"></div>
+    ${hint ? `<small class="cal-hint">${hint}</small>` : ''}`;
+
+  const labelEl = host.querySelector('.cal-label');
+  const dowEl = host.querySelector('.cal-dow');
+  const gridEl = host.querySelector('.cal-grid');
+  const countEl = host.querySelector('.cal-count');
+
+  let month = new Date();
+  month.setDate(1);
+  let anchor = null;      // first tap of a two-tap selection
+  let preview = null;     // range being dragged, before it settles
+  const cells = new Map();
+
+  function render() {
+    const y = month.getFullYear(), m = month.getMonth();
+    labelEl.textContent = month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+    const ws = weekStart();
+    dowEl.replaceChildren(...Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(2024, 0, 7 + ((ws + i) % 7));   // 2024-01-07 was a Sunday
+      const s = document.createElement('span');
+      s.textContent = d.toLocaleDateString(undefined, { weekday: 'narrow' });
+      return s;
+    }));
+
+    const lead = (new Date(y, m, 1).getDay() - ws + 7) % 7;
+    const cursor = new Date(y, m, 1 - lead);
+    const today = isoDate(new Date());
+
+    cells.clear();
+    gridEl.replaceChildren(...Array.from({ length: 42 }, () => {
+      const iso = isoDate(cursor);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.d = iso;
+      b.textContent = cursor.getDate();
+      if (cursor.getMonth() !== m) b.classList.add('out');
+      if (iso === today) b.classList.add('today');
+      cells.set(iso, b);
+      cursor.setDate(cursor.getDate() + 1);
+      return b;
+    }));
+    paint();
+  }
+
+  function paint() {
+    const r = preview || getRange();
+    const [s, e] = r || [];
+    for (const [iso, el] of cells) {
+      el.classList.toggle('in', !!r && iso >= s && iso <= e);
+      el.classList.toggle('s', iso === s);
+      el.classList.toggle('e', iso === e);
+    }
+    if (!r) { countEl.textContent = ''; return; }
+    const n = spanDays(s, e);
+    countEl.textContent = `${n} day${n > 1 ? 's' : ''}`;
+  }
+
+  let dragFrom = null, moved = false;
+  const cellAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('[data-d]');
+
+  gridEl.addEventListener('pointerdown', e => {
+    const cell = e.target.closest('[data-d]');
+    if (!cell) return;
+    e.preventDefault();
+    gridEl.setPointerCapture(e.pointerId);
+    dragFrom = cell.dataset.d;
+    moved = false;
+    preview = [dragFrom, dragFrom];
+    paint();
+  });
+
+  gridEl.addEventListener('pointermove', e => {
+    if (!dragFrom) return;
+    const cell = cellAt(e.clientX, e.clientY);
+    if (!cell) return;
+    const next = orderPair(dragFrom, cell.dataset.d);
+    if (preview && next[0] === preview[0] && next[1] === preview[1]) return;
+    moved = true;
+    preview = next;
+    paint();
+  });
+
+  gridEl.addEventListener('pointerup', async e => {
+    if (!dragFrom) return;
+    const from = dragFrom;
+    dragFrom = null;
+    try { gridEl.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    const to = cellAt(e.clientX, e.clientY)?.dataset.d ?? from;
+
+    if (!moved && to === from) {              // a tap, not a drag
+      if (!anchor) {
+        anchor = to;                          // wait for the closing tap
+        preview = [to, to];
+        paint();
+        return;
+      }
+      const [s, en] = orderPair(anchor, to);
+      anchor = null; preview = null;
+      await onRange(s, en);
+      paint();
+      return;
+    }
+    anchor = null;
+    const [s, en] = orderPair(from, to);
+    preview = null;
+    await onRange(s, en);
+    paint();
+  });
+
+  gridEl.addEventListener('pointercancel', () => {
+    dragFrom = null; preview = null; paint();
+  });
+
+  host.querySelector('.cal-prev').onclick = () => { month.setMonth(month.getMonth() - 1); render(); };
+  host.querySelector('.cal-next').onclick = () => { month.setMonth(month.getMonth() + 1); render(); };
+
+  return {
+    render,
+    /** Jump to the month containing `iso` and drop any half-finished selection. */
+    focus(iso) {
+      month = iso ? parseISO(iso) : new Date();
+      month.setDate(1);
+      anchor = null;
+      preview = null;
+      render();
+    },
+  };
+}
+
+/* ---------- the trip's own dates ---------- */
 /** The trip's current span, used to highlight the calendar. */
 function tripRange() {
   const dates = state.days.map(d => d.date).filter(Boolean).sort();
   return dates.length ? [dates[0], dates[dates.length - 1]] : null;
 }
 
-function renderCalendar() {
-  const y = calMonth.getFullYear(), m = calMonth.getMonth();
-  $('#calLabel').textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-
-  const start = weekStart();
-  $('#calDow').replaceChildren(...Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(2024, 0, 7 + ((start + i) % 7));   // 2024-01-07 was a Sunday
-    const s = document.createElement('span');
-    s.textContent = d.toLocaleDateString(undefined, { weekday: 'narrow' });
-    return s;
-  }));
-
-  const first = new Date(y, m, 1);
-  const lead = (first.getDay() - start + 7) % 7;
-  const cursor = new Date(y, m, 1 - lead);
-  const today = isoOf(new Date());
-
-  calCells.clear();
-  const cells = Array.from({ length: 42 }, () => {
-    const iso = isoOf(cursor);
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.dataset.d = iso;
-    b.textContent = cursor.getDate();
-    if (cursor.getMonth() !== m) b.classList.add('out');
-    if (iso === today) b.classList.add('today');
-    calCells.set(iso, b);
-    cursor.setDate(cursor.getDate() + 1);
-    return b;
-  });
-  $('#calGrid').replaceChildren(...cells);
-  paintRange();
-}
-
-function paintRange() {
-  const r = calPreview || tripRange();
-  const [s, e] = r || [];
-  for (const [iso, el] of calCells) {
-    const inRange = r && iso >= s && iso <= e;
-    el.classList.toggle('in', !!inRange);
-    el.classList.toggle('s', iso === s);
-    el.classList.toggle('e', iso === e);
-  }
-  const label = $('#calRange');
-  if (!r) { label.textContent = ''; return; }
-  const n = Math.round((parseISO(e) - parseISO(s)) / dayMs) + 1;
-  label.textContent = `${n} day${n > 1 ? 's' : ''}`;
-}
-
-/* Pointer events cover mouse and touch in one path. The grid keeps the capture,
-   and elementFromPoint finds the cell under the finger, because touch pointer
-   events keep targeting the element the gesture started on. */
-{
-  const grid = $('#calGrid');
-  let dragFrom = null, moved = false;
-  const cellAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('[data-d]');
-
-  grid.addEventListener('pointerdown', e => {
-    const cell = e.target.closest('[data-d]');
-    if (!cell) return;
-    e.preventDefault();
-    grid.setPointerCapture(e.pointerId);
-    dragFrom = cell.dataset.d;
-    moved = false;
-    calPreview = [dragFrom, dragFrom];
-    paintRange();
-  });
-
-  grid.addEventListener('pointermove', e => {
-    if (!dragFrom) return;
-    const cell = cellAt(e.clientX, e.clientY);
-    if (!cell) return;
-    const next = orderPair(dragFrom, cell.dataset.d);
-    if (calPreview && next[0] === calPreview[0] && next[1] === calPreview[1]) return;
-    moved = true;
-    calPreview = next;
-    paintRange();
-  });
-
-  grid.addEventListener('pointerup', async e => {
-    if (!dragFrom) return;
-    const from = dragFrom;
-    dragFrom = null;
-    try { grid.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
-    const to = cellAt(e.clientX, e.clientY)?.dataset.d ?? from;
-
-    if (!moved && to === from) {          // a tap, not a drag
-      if (calAnchor) {
-        const range = orderPair(calAnchor, to);
-        calAnchor = null;
-        await applyRange(...range);
-      } else {
-        calAnchor = to;                   // wait for the closing tap
-        calPreview = [to, to];
-        paintRange();
-      }
-      return;
-    }
-    calAnchor = null;
-    await applyRange(...orderPair(from, to));
-  });
-
-  grid.addEventListener('pointercancel', () => {
-    dragFrom = null; calPreview = null; paintRange();
-  });
-}
-
-$('#calPrev').onclick = () => { calMonth.setMonth(calMonth.getMonth() - 1); renderCalendar(); };
-$('#calNext').onclick = () => { calMonth.setMonth(calMonth.getMonth() + 1); renderCalendar(); };
+const tripCal = makeCalendar($('#tripCal'), {
+  getRange: tripRange,
+  onRange: applyRange,
+  hint: 'Drag across the days you are travelling, or tap the first and last. Days are added or removed to match.',
+});
 
 /**
  * Lays the trip across [startISO, endISO].
@@ -928,17 +1068,18 @@ $('#calNext').onclick = () => { calMonth.setMonth(calMonth.getMonth() + 1); rend
  * Different: days are re-dated consecutively and added or removed at the end.
  */
 async function applyRange(startISO, endISO) {
-  const n = Math.round((parseISO(endISO) - parseISO(startISO)) / dayMs) + 1;
+  const n = spanDays(startISO, endISO);
 
   if (n < state.days.length) {
     const losing = state.days.slice(n).filter(d => d.items.length).length;
     if (losing) {
+      const dropped = state.days.length - n;
       const ok = await ask({
-        title: `Drop ${state.days.length - n} day${state.days.length - n > 1 ? 's' : ''}?`,
+        title: `Drop ${dropped} day${dropped > 1 ? 's' : ''}?`,
         body: `${losing} of them still ${losing > 1 ? 'have stops' : 'has stops'} planned. Bookings stay in the Itinerary.`,
         confirm: 'Drop them', danger: true,
       });
-      if (!ok) { calPreview = null; paintRange(); return; }
+      if (!ok) return;
     }
   }
 
@@ -964,22 +1105,60 @@ async function applyRange(startISO, endISO) {
     state.dayIdx = Math.min(state.dayIdx, n - 1);
   }
 
-  calPreview = null;
   save();
   render();
   renderDayTable();
-  paintRange();
   recalc();
 }
+
+/* ---------- range dialog, for hotel stays ---------- */
+let rangePending = null;      // [startISO, endISO] chosen but not yet saved
+let rangeResolve = null;
+
+const rangeCal = makeCalendar($('#rangeCal'), {
+  getRange: () => rangePending,
+  onRange: (s, e) => { rangePending = [s, e]; updateRangeSub(); },
+  hint: 'Drag across the nights, or tap check-in then check-out.',
+});
+
+function updateRangeSub() {
+  if (!rangePending) { $('#rangeSub').textContent = 'No dates set.'; return; }
+  const nights = spanDays(...rangePending) - 1;
+  $('#rangeSub').textContent = nights > 0
+    ? `${nights} night${nights > 1 ? 's' : ''}`
+    : 'Same-day check-in and check-out.';
+}
+
+/** Resolves { start, end, t1, t2 } or null. Times may be empty strings. */
+function pickRange({ title, range, t1 = '', t2 = '' }) {
+  $('#rangeTitle').textContent = title;
+  rangePending = range;
+  $('#rangeT1').value = t1;
+  $('#rangeT2').value = t2;
+  updateRangeSub();
+  rangeCal.focus(range?.[0]);
+  $('#rangeDlg').returnValue = '';
+  $('#rangeDlg').showModal();
+  return new Promise(res => { rangeResolve = res; });
+}
+
+$('#rangeDlg').addEventListener('close', () => {
+  const dlg = $('#rangeDlg');
+  const done = rangeResolve;
+  rangeResolve = null;
+  if (!done) return;
+  if (dlg.returnValue !== 'ok') return done(null);
+  if (!rangePending) return done({ start: '', end: '', t1: '', t2: '' });
+  done({ start: rangePending[0], end: rangePending[1], t1: $('#rangeT1').value, t2: $('#rangeT2').value });
+});
+$('#rangeOk').onclick = () => $('#rangeDlg').close('ok');
+$('#rangeCancel').onclick = () => $('#rangeDlg').close('');
+$('#rangeClear').onclick = () => { rangePending = null; updateRangeSub(); rangeCal.render(); };
 
 /* ---------- trip days: edit every date and city in one table ---------- */
 function openDayDlg() {
   const first = state.days.find(d => d.date);
-  calMonth = first ? new Date(`${first.date}T00:00`) : new Date();
-  calMonth.setDate(1);
-  calAnchor = null;
-  calPreview = null;
-  renderCalendar();
+  tripCal.focus(first?.date);
   renderDayTable();
   if (!$('#dayDlg').open) $('#dayDlg').showModal();   // showModal throws if already open
 }
@@ -990,7 +1169,7 @@ function renderDayTable() {
     if (i === state.dayIdx) tr.className = 'on';
     tr.innerHTML = `
       <th><button class="r-go" type="button" title="Open this day">Day ${i + 1}</button></th>
-      <td><input type="date" class="r-date" value="${esc(d.date || '')}"></td>
+      <td class="r-when">${esc(wkday(d.date))}</td>
       <td><span class="ac"><input class="r-city" value="${esc(d.city || '')}" placeholder="City" autocomplete="off"></span></td>
       <td><button class="r-fill" type="button" title="Use this city for every later day">↓</button></td>
       <td><button class="r-del x" type="button" title="Delete this day"${state.days.length < 2 ? ' disabled' : ''}>✕</button></td>`;
@@ -998,11 +1177,6 @@ function renderDayTable() {
     tr.querySelector('.r-go').onclick = () => {
       state.dayIdx = i;
       save(); render(); renderDayTable();
-    };
-
-    tr.querySelector('.r-date').onchange = e => {
-      d.date = e.target.value;
-      save(); render(); renderDayTable(); recalc();
     };
 
     const cityInput = tr.querySelector('.r-city');
@@ -1055,10 +1229,22 @@ function renderDayTable() {
 
 $('#dayEdit').onclick = openDayDlg;
 $('#ddDone').onclick = () => $('#dayDlg').close();
-$('#ddAdd').onclick = () => { addDayAfter(state.days.length - 1); renderDayTable(); renderCalendar(); };
+$('#ddAdd').onclick = () => { addDayAfter(state.days.length - 1); renderDayTable(); tripCal.render(); };
 $('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
+/** First night of the trip with no stay booked, so "+ Hotel" lands somewhere useful. */
+function firstUncoveredDate() {
+  for (const x of state.days) {
+    if (!x.date) continue;
+    if (!state.itinerary.some(b => isStay(b.kind) && staysOn(b, x.date))) return x.date;
+  }
+  return state.days.find(x => x.date)?.date || '';
+}
+
 const addBooking = (kind, time) => {
-  const d = day().date;
+  const inDayView = state.tab === 'itinerary' && (state.itinView || 'all') === 'day';
+  const d = inDayView
+    ? day().date
+    : (kind === 'Hotel' ? firstUncoveredDate() : state.days.find(x => x.date)?.date || '');
   const b = newBooking(kind, d ? `${d}T${time}` : '');
   if (kind === 'Hotel' && d) {                 // default to one night
     const t = new Date(`${d}T00:00`);
@@ -1071,6 +1257,11 @@ const addBooking = (kind, time) => {
 };
 $('#addStay').onclick = () => addBooking('Hotel', '15:00');
 $('#addBooking').onclick = () => addBooking('Flight', '09:00');
+
+for (const btn of document.querySelectorAll('[data-iv]')) {
+  btn.onclick = () => { state.itinView = btn.dataset.iv; save(); render(); syncChrome(); };
+}
+$('#itinSearch').oninput = e => { itinQuery = e.target.value; renderItinerary(); };
 
 $('#addPoi').onsubmit = async e => {
   e.preventDefault();

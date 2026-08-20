@@ -20,7 +20,7 @@
 <body>
 
 <header>
-  <input id="tripName" class="title" aria-label="Trip name">
+  <span class="appname"><img src="icons/favicon-32.png" alt="" width="22" height="22">Travel Planner</span>
   <span id="env" hidden>preview</span>
   <span id="busy" hidden>working…</span>
   <span class="spacer"></span>
@@ -58,8 +58,8 @@
   <section id="overview" hidden>
     <div class="pane wide">
       <div class="ov-head">
-        <div>
-          <h2 id="ovTitle"></h2>
+        <div class="ov-title">
+          <input id="tripName" class="title" aria-label="Trip name" placeholder="Name this trip">
           <p id="ovMeta"></p>
         </div>
         <span class="spacer"></span>
@@ -71,25 +71,23 @@
 
   <!-- ---------- Itinerary: bookings for the selected day ---------- -->
   <section id="itinerary" hidden>
+    <nav class="subribbon" role="tablist">
+      <button data-iv="all" role="tab">All</button>
+      <button data-iv="stays" role="tab">Stays</button>
+      <button data-iv="transport" role="tab">Transport</button>
+      <button data-iv="day" role="tab">This day</button>
+      <span class="spacer"></span>
+      <input id="itinSearch" type="search" placeholder="Search name, ref, city…" autocomplete="off">
+    </nav>
+
     <div class="pane wide">
-      <p id="noDate" class="hint" hidden>This day has no date set, so every booking is listed. Set a date above to file them by day.</p>
-
-      <div class="group">
-        <h3>Staying <button id="addStay">+ Hotel</button></h3>
-        <ul id="stays"></ul>
+      <div class="daybar">
+        <button id="addStay">+ Hotel</button>
+        <button id="addBooking">+ Flight / train</button>
+        <span class="spacer"></span>
+        <span id="bookTotal" class="total"></span>
       </div>
-
-      <div class="group">
-        <h3>Getting there <button id="addBooking">+ Flight / train</button></h3>
-        <ul id="transport"></ul>
-      </div>
-
-      <div class="group" id="undatedGroup" hidden>
-        <h3>Not on any day yet</h3>
-        <ul id="undated"></ul>
-      </div>
-
-      <p id="bookTotal" class="total"></p>
+      <ul id="bookings"></ul>
     </div>
   </section>
 
@@ -189,19 +187,7 @@
     <p>Dates drive transit timetables and file your bookings onto the right day.</p>
   </div>
 
-  <div class="cal">
-    <div class="cal-head">
-      <button id="calPrev" class="icon" type="button" aria-label="Previous month">‹</button>
-      <strong id="calLabel"></strong>
-      <button id="calNext" class="icon" type="button" aria-label="Next month">›</button>
-      <span class="spacer"></span>
-      <small id="calRange"></small>
-    </div>
-    <div class="cal-dow" id="calDow"></div>
-    <div class="cal-grid" id="calGrid"></div>
-    <small class="cal-hint">Drag across the days you are travelling, or tap the first and last.
-      Days are added or removed to match.</small>
-  </div>
+  <div id="tripCal"></div>
 
   <div class="daytable-wrap">
     <table class="daytable"><tbody id="ddRows"></tbody></table>
@@ -214,6 +200,24 @@
   <div class="wiz-foot">
     <span class="spacer"></span>
     <button id="ddDone" type="button" class="primary">Done</button>
+  </div>
+</dialog>
+
+<dialog id="rangeDlg" class="wide-dlg">
+  <div class="ask-head">
+    <h2 id="rangeTitle">Dates</h2>
+    <p id="rangeSub"></p>
+  </div>
+  <div id="rangeCal"></div>
+  <div class="wiz-body range-times">
+    <label>Check in<input type="time" id="rangeT1"><small>optional</small></label>
+    <label>Check out<input type="time" id="rangeT2"><small>optional</small></label>
+  </div>
+  <div class="wiz-foot">
+    <button id="rangeClear" type="button">Clear</button>
+    <span class="spacer"></span>
+    <button id="rangeCancel" type="button">Cancel</button>
+    <button id="rangeOk" type="button" class="primary">Save</button>
   </div>
 </dialog>
 

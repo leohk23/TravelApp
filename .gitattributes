@@ -1,0 +1,3 @@
+# Keep LF in the working tree. Git rewriting line endings on checkout
+# silently breaks exact-match tooling and churns diffs.
+* text=auto eol=lf
