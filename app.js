@@ -382,6 +382,29 @@ function addDayAfter(idx) {
 
 /* ---------- itinerary: flights, trains, stays ---------- */
 const KINDS = ['Flight', 'Train', 'Bus', 'Ferry', 'Car', 'Hotel', 'Other'];
+
+/**
+ * What each kind of booking actually needs. A hotel has no seat or terminal,
+ * and a flight has no address, so the wording follows the kind rather than
+ * asking every booking the same questions.
+ */
+const KIND_CFG = {
+  Flight: { ref: 'Flight number', from: 'From (airport)', to: 'To (airport)',
+            conf: 'Booking ref', notes: 'Seat, terminal, baggage…' },
+  Train:  { ref: 'Train or service number', from: 'From station', to: 'To station',
+            conf: 'Booking ref', notes: 'Coach, platform, class…' },
+  Bus:    { ref: 'Service number', from: 'From', to: 'To',
+            conf: 'Booking ref', notes: 'Stop, seat…' },
+  Ferry:  { ref: 'Sailing', from: 'From port', to: 'To port',
+            conf: 'Booking ref', notes: 'Deck, vehicle, cabin…' },
+  Car:    { ref: 'Rental company', from: 'Pick up', to: 'Drop off',
+            conf: 'Reservation no.', notes: 'Insurance, fuel policy…' },
+  Hotel:  { ref: 'Hotel name', from: 'Address', to: '',
+            conf: 'Booking no.', notes: 'Breakfast, late check-in, floor…' },
+  Other:  { ref: 'Name', from: 'From', to: 'To',
+            conf: 'Reference', notes: 'Notes…' },
+};
+const cfgFor = kind => KIND_CFG[kind] || KIND_CFG.Other;
 const ICON = { Flight: '✈', Train: '🚆', Bus: '🚌', Ferry: '⛴', Car: '🚗', Hotel: '🏨', Other: '📌' };
 const isStay = k => k === 'Hotel';
 const dateOf = dt => (dt || '').slice(0, 10);
@@ -414,6 +437,7 @@ function stayLabel(b) {
 
 function bookingCard(b, { showDate = false } = {}) {
   const stay = isStay(b.kind);
+  const cfg = cfgFor(b.kind);
   const billed = state.expenses.some(e => e.src === b.id);
   const orphan = !onSomeDay(b);
   const li = document.createElement('li');
@@ -425,7 +449,7 @@ function bookingCard(b, { showDate = false } = {}) {
         `<option value="${k}"${k === b.kind ? ' selected' : ''}>${ICON[k]} ${k}</option>`).join('')}</select>
       ${stay
         ? `<span class="ac grow"><input class="f-ref" value="${esc(b.ref || '')}" placeholder="Search a hotel…" autocomplete="off"></span>`
-        : `<input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="Flight / service no.">`}
+        : `<input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="${esc(cfg.ref)}">`}
       ${showDate && b.start ? `<span class="when-chip">${esc(fmtDayLabel(b.start))}</span>` : ''}
       ${orphan ? '<span class="chip warn" title="This booking is not on any day of the trip">off-trip</span>' : ''}
       <span class="spacer"></span>
@@ -435,23 +459,23 @@ function bookingCard(b, { showDate = false } = {}) {
     </div>
 
     <div class="brow">
-      <input class="f-from grow" value="${esc(b.from || '')}" placeholder="${stay ? 'Address' : 'From'}">
-      ${stay ? '' : `<span class="arrow">→</span><input class="f-to grow" value="${esc(b.to || '')}" placeholder="To">`}
+      <input class="f-from grow" value="${esc(b.from || '')}" placeholder="${esc(cfg.from)}">
+      ${stay ? '' : `<span class="arrow">→</span><input class="f-to grow" value="${esc(b.to || '')}" placeholder="${esc(cfg.to)}">`}
       ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button><button class="startday" title="Add as the first stop of this day under Day plan">start day here</button>' : ''}
     </div>
 
     <div class="brow">
       ${stay
         ? `<button class="daterange grow" type="button">${esc(stayLabel(b))}</button>`
-        : `<label>Depart<input type="datetime-local" class="f-start" value="${esc(b.start || '')}"></label>
-           <label>Arrive<input type="datetime-local" class="f-end" value="${esc(b.end || '')}"></label>`}
+        : `<label>${b.kind === 'Car' ? 'Pick up' : 'Depart'}<input type="datetime-local" class="f-start" value="${esc(b.start || '')}"></label>
+           <label>${b.kind === 'Car' ? 'Drop off' : 'Arrive'}<input type="datetime-local" class="f-end" value="${esc(b.end || '')}"></label>`}
       <small class="span">${esc(spanLabel(b))}</small>
     </div>
 
     <div class="brow">
-      <label>Booking no.<input class="f-conf" value="${esc(b.conf || '')}" placeholder="confirmation ref"></label>
+      <label>${esc(cfg.conf)}<input class="f-conf" value="${esc(b.conf || '')}" placeholder="optional"></label>
       <label>${esc(state.currency)}<input type="number" class="f-cost" step="0.01" min="0" size="8" value="${b.cost || ''}"></label>
-      <input class="f-notes grow" value="${esc(b.notes || '')}" placeholder="Seat, terminal, breakfast included…">
+      <input class="f-notes grow" value="${esc(b.notes || '')}" placeholder="${esc(cfg.notes)}">
     </div>`;
 
   // Plain text fields only save; anything affecting grouping or derived text redraws.
@@ -1325,8 +1349,36 @@ const addBooking = (kind, time) => {
   save(); renderItinerary();
   document.querySelector(`[data-bid="${b.id}"] .f-ref`)?.focus();
 };
-$('#addStay').onclick = () => addBooking('Hotel', '15:00');
-$('#addBooking').onclick = () => addBooking('Flight', '09:00');
+/* ---------- floating add button ---------- */
+{
+  const wrap = $('#itinFab');
+  const btn = $('#itinFabBtn');
+  const menu = $('#itinFabMenu');
+
+  menu.replaceChildren(...KINDS.map((kind, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'fab-item';
+    b.innerHTML = `<span class="fab-label">${kind}</span><span class="fab-icon">${ICON[kind]}</span>`;
+    // Stagger so the menu unfurls instead of appearing all at once.
+    b.style.transitionDelay = `${i * 22}ms`;
+    b.onclick = () => {
+      close();
+      addBooking(kind, kind === 'Hotel' ? '15:00' : '09:00');
+    };
+    return b;
+  }));
+
+  const close = () => { wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+  const toggle = () => {
+    const open = wrap.classList.toggle('open');
+    btn.setAttribute('aria-expanded', String(open));
+  };
+
+  btn.onclick = e => { e.stopPropagation(); toggle(); };
+  addEventListener('click', e => { if (!wrap.contains(e.target)) close(); });
+  addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+}
 
 for (const btn of document.querySelectorAll('[data-iv]')) {
   btn.onclick = () => { state.itinView = btn.dataset.iv; save(); render(); syncChrome(); };

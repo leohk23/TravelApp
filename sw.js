@@ -2,7 +2,7 @@
 //
 // Bump VERSION on any change to the shell files, or browsers keep serving the
 // old copy. There is no build step to do it automatically.
-const VERSION = 'v10';
+const VERSION = 'v11';
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles-v1';
 const MAX_TILES = 400;          // roughly a city at a couple of zoom levels
