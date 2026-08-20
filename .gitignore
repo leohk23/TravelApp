@@ -1,0 +1,4 @@
+# Secrets. The ODPT token is used only by tools/ at build time and must never
+# reach the repo or the browser.
+.env
+.env.local

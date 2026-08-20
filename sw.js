@@ -7,7 +7,7 @@
 // were being reported against code that no longer existed.
 //
 // VERSION still names the cache so an old one can be cleared on activate.
-const VERSION = 'v27';
+const VERSION = 'v28';
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles-v1';
 const MAX_TILES = 400;          // roughly a city at a couple of zoom levels
@@ -15,7 +15,7 @@ const MAX_TILES = 400;          // roughly a city at a couple of zoom levels
 const LOCAL = [
   './', './index.html', './style.css', './app.js', './logic.js', './providers.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png',
-  './data/airports.json', './data/fares.json',
+  './data/airports.json', './data/fares.json', './data/mtr-fares.json',
 ];
 const CDN = [
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',

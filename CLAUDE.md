@@ -137,6 +137,12 @@ Everything network-facing is in `providers.js`:
   Returns a pareto set, not a sorted list, so `route()` picks earliest arrival.
   No fare data, and its `one-to-many` matrix endpoint rejected every coordinate
   format tried.
+- **MTR fares** (`data/mtr-fares.json`) — the one city with *exact* fares.
+  MTR publishes its full station-to-station table as open CSV with no key, so
+  `tools/make-mtr-fares.mjs` commits it and `exactFare()` prices Hong Kong
+  journeys from it. A network charges entry to exit however many lines you
+  change, so it prices first-entry to last-exit, not per leg. Anything it
+  cannot cover falls back to the bands below and the result stops being exact.
 - **Fare table** (`data/fares.json`) — approximate single fares per city, and
   per **operator** where a city lists them. Operators charge separately and the
   fares are summed, because that is how Tokyo works: Metro then Toei is two

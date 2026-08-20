@@ -51,7 +51,8 @@
           [30, 20],
           [999, 26]
         ]
-      }
+      },
+      "exact": "mtr-fares.json"
     },
     {
       "id": "tokyo",
@@ -302,5 +303,6 @@
       }
     }
   ],
-  "operators": "Where a city lists operators, each one charges separately and the journey pays the sum, which is how Tokyo actually works. Matching is case-insensitive substring on the agency name, first match wins, so put specific names before general ones."
+  "operators": "Where a city lists operators, each one charges separately and the journey pays the sum, which is how Tokyo actually works. Matching is case-insensitive substring on the agency name, first match wins, so put specific names before general ones.",
+  "exact": "Where a city names an exact table, journeys on that operator are priced from it rather than guessed. Everything else still falls back to the steps above."
 }

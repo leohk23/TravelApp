@@ -829,3 +829,7 @@ main > section { position: relative; }
 .j-wait .j-body {
   color: var(--warn); font-size: 12.5px; padding: 0 0 8px 38px; font-weight: 600;
 }
+.leg .fare.exact {
+  color: var(--accent); border-color: var(--accent); background: transparent;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}

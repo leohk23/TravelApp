@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -163,6 +163,40 @@ assert.ok(estimateFare(FARES, HK_CENTRAL, HK_TST, [ride("SUBWAY", 25)]).amount >
   "further costs more");
 assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, [ride("BUS", 3)]).amount, 6.0,
   "buses use their own table");
+
+// Hong Kong has a published table, so its fares are exact rather than guessed
+const MTR = JSON.parse(fs.readFileSync(new URL("./data/mtr-fares.json", import.meta.url), "utf8"));
+const mtrLeg = (from, to) => ({ mode: "SUBWAY", agency: "MTR Rail", from, to, metres: 3000 });
+
+const oneLine = estimateFare(FARES, HK_CENTRAL, HK_TST,
+  [walk(0.2), mtrLeg("Central", "Tsim Sha Tsui"), walk(0.2)], MTR);
+assert.equal(oneLine.amount, 10.6, "the published Central to Tsim Sha Tsui fare");
+assert.equal(oneLine.exact, true, "published, so not a guess");
+
+// The MTR charges entry to exit however many lines you change, so two legs is
+// still one fare, priced first-entry to last-exit - not the sum of the legs.
+const changed = estimateFare(FARES, HK_CENTRAL, HK_TST,
+  [mtrLeg("Central", "Admiralty"), mtrLeg("Admiralty", "Kowloon Tong")], MTR);
+assert.equal(changed.amount, 13.2, "Central to Kowloon Tong, one fare across the change");
+assert.equal(changed.breakdown.length, 1, "one charge, not two");
+
+// A bus after the train is a separate fare, and the result stops being exact
+const trainThenBus = estimateFare(FARES, HK_CENTRAL, HK_TST,
+  [mtrLeg("Central", "Tsim Sha Tsui"), { mode: "BUS", agency: "KMB", metres: 3000 }], MTR);
+assert.equal(trainThenBus.breakdown.length, 2, "train and bus charge separately");
+assert.ok(trainThenBus.amount > 10.6, "the bus adds to it");
+assert.equal(trainThenBus.exact, false, "part of it is still a guess");
+
+// A station the table does not list falls back rather than inventing a fare
+const unknownStation = estimateFare(FARES, HK_CENTRAL, HK_TST,
+  [mtrLeg("Central", "Nowhere Station")], MTR);
+assert.ok(unknownStation && unknownStation.exact === false,
+  "unknown station falls back to the estimate");
+
+assert.equal(exactFare(MTR, []), null, "nothing ridden, nothing published");
+assert.equal(exactFare(null, [mtrLeg("Central", "Admiralty")]), null, "no table, no fare");
+assert.equal(exactFare(MTR, [{ mode: "BUS", agency: "KMB", from: "a", to: "b" }]), null,
+  "another operator is not the MTR");
 
 // Tokyo charges per operator, which is the whole point of the operator tables
 const TOKYO = { lat: 35.6812, lng: 139.7671 };

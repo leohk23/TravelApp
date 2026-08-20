@@ -292,6 +292,35 @@ export function fareCity(table, point) {
   return best;
 }
 
+/**
+ * The published fare for the ridden portion an exact table covers.
+ *
+ * A network like the MTR charges once from where you enter to where you leave,
+ * however many lines you change, so this prices first-entry to last-exit rather
+ * than summing legs.
+ *
+ * Returns { amount, covered } where covered is the steps it accounted for, or
+ * null when the table cannot price any of it.
+ */
+export function exactFare(exact, steps) {
+  if (!exact?.stations?.length || !steps.length) return null;
+  const match = (exact.match || []).map(m => String(m).toLowerCase());
+  const mine = steps.filter(s => {
+    const agency = String(s.agency || '').toLowerCase();
+    return agency && match.some(m => agency.includes(m));
+  });
+  if (!mine.length) return null;
+
+  const index = exact._index || (exact._index = new Map(exact.stations.map((s, i) => [s, i])));
+  const a = index.get(mine[0].from);
+  const b = index.get(mine[mine.length - 1].to);
+  if (a == null || b == null || a === b) return null;
+
+  const pair = exact.fares[a < b ? `${a}-${b}` : `${b}-${a}`];
+  if (!pair) return null;
+  return { amount: pair[0], covered: mine };
+}
+
 /** First operator whose name matches, or null. Order in the data decides. */
 function operatorFor(city, agency) {
   const name = String(agency || "").toLowerCase();
@@ -314,10 +343,11 @@ const stepAt = (steps, km) => (steps.find(([maxKm]) => km <= maxKm) || steps[ste
  * are hand-written approximations that go stale. A fare the traveller enters is
  * remembered separately and takes precedence.
  *
- * Returns { amount, currency, city, breakdown } or null when nothing was ridden
- * or the city is unknown.
+ * Returns { amount, currency, city, breakdown, exact } or null when nothing was
+ * ridden or the city is unknown. `exact` is true only when every ridden step
+ * came from a published table rather than a distance band.
  */
-export function estimateFare(table, from, to, steps = []) {
+export function estimateFare(table, from, to, steps = [], exact = null) {
   // Walking is free. Nothing ridden means nothing to charge for.
   const ridden = steps.filter(s => String(s?.mode || "").toUpperCase() !== "WALK");
   if (!ridden.length) return null;
@@ -325,25 +355,34 @@ export function estimateFare(table, from, to, steps = []) {
   const city = fareCity(table, from);
   if (!city) return null;
 
+  const breakdown = [];
+
+  // A published fare beats any band, so price what the exact table covers and
+  // leave the remaining legs to the estimates below.
+  const published = exactFare(exact, ridden);
+  const rest = published ? ridden.filter(s => !published.covered.includes(s)) : ridden;
+  if (published) {
+    breakdown.push({ operator: exact.label || "Published fare", amount: published.amount, exact: true });
+  }
+
   // Distance per operator, taken from the routed legs where they carry one.
   const byOperator = new Map();
   let unmatchedKm = 0;
   let unmatched = false;
-  for (const s of ridden) {
+  for (const s of rest) {
     const km = s.metres != null ? s.metres / 1000 : 0;
     const op = operatorFor(city, s.agency);
     if (!op) { unmatched = true; unmatchedKm += km; continue; }
     byOperator.set(op, (byOperator.get(op) || 0) + km);
   }
 
-  const breakdown = [];
   for (const [op, km] of byOperator) {
     breakdown.push({ operator: op.label || op.id, amount: stepAt(op.steps, km) });
   }
 
   // Anything from an operator the table does not know still has to be priced.
   if (unmatched) {
-    const modes = ridden.map(s => String(s.mode || "").toUpperCase()).filter(Boolean);
+    const modes = rest.map(s => String(s.mode || "").toUpperCase()).filter(Boolean);
     const mode = modes.find(m => city.modes?.[m]) || "*";
     const fallback = city.modes?.[mode] || city.modes?.["*"];
     if (fallback?.length) {
@@ -361,7 +400,10 @@ export function estimateFare(table, from, to, steps = []) {
   }
 
   amount = Math.max(0, Math.round(amount * 100) / 100);
-  return { amount, currency: city.currency, city: city.label, breakdown };
+  return {
+    amount, currency: city.currency, city: city.label, breakdown,
+    exact: Boolean(published) && rest.length === 0,
+  };
 }
 
 /** An instant rendered as a clock time where the traveller is, not where the device is. */

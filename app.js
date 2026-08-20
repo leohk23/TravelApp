@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, estimateFare, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -268,11 +268,23 @@ function applyMapLayout() {
 // Loaded once, lazily: only a routed day needs it. Precached by the service
 // worker, so it works with no signal.
 let fareTable = null;
+let exactTables = {};     // filename -> published fare table
 function loadFares() {
   if (fareTable === null) {
     fareTable = fetch(new URL("./data/fares.json", import.meta.url))
       .then(r => (r.ok ? r.json() : null))
-      .then(t => { fareTable = t; render(); return t; })
+      .then(async t => {
+        // Pull in any published tables the cities point at, so an exact fare is
+        // ready on the same render as the estimate it replaces.
+        const files = [...new Set((t?.cities || []).map(c => c.exact).filter(Boolean))];
+        await Promise.all(files.map(f => fetch(new URL("./data/" + f, import.meta.url))
+          .then(r => (r.ok ? r.json() : null))
+          .then(j => { if (j) exactTables[f] = j; })
+          .catch(() => {})));
+        fareTable = t;
+        render();
+        return t;
+      })
       .catch(() => { fareTable = undefined; });
   }
   return fareTable;
@@ -1118,7 +1130,9 @@ function legRow(d, row) {
   if (ridden && known == null) {
     const table = fareTable;
     if (table && typeof table.then !== 'function') {
-      guess = estimateFare(table, d.items[row.from], d.items[row.to], row.leg.steps || []);
+      const city = fareCity(table, d.items[row.from]);
+      guess = estimateFare(table, d.items[row.from], d.items[row.to], row.leg.steps || [],
+        city?.exact ? exactTables[city.exact] : null);
     } else loadFares();
   }
 
@@ -1127,7 +1141,7 @@ function legRow(d, row) {
   const localCurrency = guess && guess.currency !== state.currency ? guess.currency : null;
 
   const shown = known != null ? `${esc(state.currency)} ${known}`
-    : guess ? `~ ${esc(guess.currency)} ${guess.amount}`
+    : guess ? `${guess.exact ? "" : "~ "}${esc(guess.currency)} ${guess.amount}`
     : '+ fare';
 
   li.innerHTML = `
@@ -1137,8 +1151,9 @@ function legRow(d, row) {
       : '<span class="via">no public transport found - walk it, or check the day has a date set</span>'}
     ${ridden && url ? `<a class="fare-link" href="${esc(url)}" target="_blank" rel="noopener"
        title="Operator fare information">fares</a>` : ''}
-    ${ridden ? `<button class="fare${known != null ? ' known' : guess ? ' guess' : ''}"
+    ${ridden ? `<button class="fare${known != null ? ' known' : guess?.exact ? ' exact' : guess ? ' guess' : ''}"
       title="${known != null ? 'Remembered from the last time you rode this'
+        : guess?.exact ? 'Published operator fare. Tap to add it or correct it.'
         : guess ? `Rough ${esc(guess.city)} fare, not from the operator. Tap to confirm or correct.`
         : 'Add what this leg cost'}">${shown}</button>` : ''}`;
 
@@ -1154,10 +1169,11 @@ function legRow(d, row) {
         const parts = guess?.breakdown?.length > 1
           ? ` Made up of ${guess.breakdown.map(x => `${x.operator} ${x.amount}`).join(" + ")}.`
           : "";
+        const source = guess?.exact ? "the operator's published fare" : `a rough ${guess?.city} fare, not from the operator`;
         return localCurrency
-        ? `${d.items[row.from].name} → ${d.items[row.to].name}. A single fare here is roughly ${localCurrency} ${guess.amount}.${parts} This trip records expenses in ${state.currency}, so enter what you paid in ${state.currency}.`
+        ? `${d.items[row.from].name} → ${d.items[row.to].name}. This leg is ${localCurrency} ${guess.amount} from ${source}.${parts} This trip records expenses in ${state.currency}, so enter what you paid in ${state.currency}.`
         : guess
-          ? `${d.items[row.from].name} → ${d.items[row.to].name}. The figure below is a rough ${guess.city} fare, not from the operator.${parts}`
+          ? `${d.items[row.from].name} → ${d.items[row.to].name}. The figure below is ${source}.${parts}`
           : `${d.items[row.from].name} → ${d.items[row.to].name}`;
       })(),
       label: state.currency,
