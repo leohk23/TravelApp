@@ -302,12 +302,17 @@ export function fareCity(table, point) {
  * Returns { amount, currency, city, mode } or null when the city is unknown.
  */
 export function estimateFare(table, from, to, modes = []) {
+  // Walking is free. An empty mode list means no service was ridden, and
+  // falling through to the default table would price a stroll as a metro ride.
+  const ridden = modes.map(m => String(m || '').toUpperCase()).filter(Boolean);
+  if (!ridden.length) return null;
+
   const city = fareCity(table, from);
   if (!city) return null;
 
   // The mode you spend most of the journey on decides the table; a bus is
   // priced differently from the metro even over the same distance.
-  const mode = modes.map(m => String(m || '').toUpperCase()).find(m => city.modes[m]) || '*';
+  const mode = ridden.find(m => city.modes[m]) || '*';
   const steps = city.modes[mode] || city.modes['*'];
   if (!steps?.length) return null;
 

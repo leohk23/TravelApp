@@ -158,6 +158,11 @@ const long = estimateFare(FARES, HK_CENTRAL, HK_FAR, ["SUBWAY"]);
 assert.ok(long.amount > short.amount, "further costs more");
 
 assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["BUS"]).amount, 6.0, "buses use their own table");
+assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, []), null,
+  "walking the whole way costs nothing, so there is nothing to estimate");
+assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["", null]), null,
+  "blank modes are not a service ridden");
+assert.equal(fareKey([]), "", "and a walk has no fare to remember either");
 assert.equal(estimateFare(FARES, HK_CENTRAL, HK_TST, ["FUNICULAR"]).amount, 5.5,
   "an unlisted mode falls back to the default table");
 

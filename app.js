@@ -1027,9 +1027,12 @@ function legRow(d, row) {
   const known = key ? state.fares?.[key] : undefined;
   const url = row.leg?.fareUrl;
 
+  // Walking costs nothing, so it gets no fare affordance at all.
+  const ridden = (row.leg?.lines || []).length > 0;
+
   // A fare you entered beats a guess. Only guess when there is nothing better.
   let guess = null;
-  if (row.leg && known == null) {
+  if (ridden && known == null) {
     const table = fareTable;
     if (table && typeof table.then !== 'function') {
       guess = estimateFare(table, d.items[row.from], d.items[row.to],
@@ -1044,14 +1047,14 @@ function legRow(d, row) {
   li.innerHTML = `
     <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
     <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
-    ${url ? `<a class="fare-link" href="${esc(url)}" target="_blank" rel="noopener"
+    ${ridden && url ? `<a class="fare-link" href="${esc(url)}" target="_blank" rel="noopener"
        title="Operator fare information">fares</a>` : ''}
-    <button class="fare${known != null ? ' known' : guess ? ' guess' : ''}"
+    ${ridden ? `<button class="fare${known != null ? ' known' : guess ? ' guess' : ''}"
       title="${known != null ? 'Remembered from the last time you rode this'
         : guess ? `Rough ${esc(guess.city)} fare, not from the operator. Tap to confirm or correct.`
-        : 'Add what this leg cost'}">${shown}</button>`;
+        : 'Add what this leg cost'}">${shown}</button>` : ''}`;
 
-  li.querySelector('.fare').onclick = async () => {
+  if (li.querySelector('.fare')) li.querySelector('.fare').onclick = async () => {
     const entered = await askText({
       title: 'What did this leg cost?',
       body: guess
