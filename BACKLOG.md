@@ -52,9 +52,14 @@ Deliberately not built yet. Each line says what would trigger building it.
 - **Pin the last stop too.** Optimise pins only the first stop. Days that end
   back at the hotel want both ends pinned — `optimizeOrder` already takes a
   flag, it just needs `pinLast`. *Build when a day ends far from bed.*
-- **Transit fares.** Transitous carries no fare data, so each leg has a manual
-  `+ fare` button that prompts for an amount. *Build a per-city fare table if
-  typing them gets tedious.*
+- **Automatic transit fares.** Checked directly against the API: Transitous
+  supports GTFS-Fares but `debug.fares` is 0 in Hong Kong, Tokyo, Berlin and
+  Chicago, because almost no agency publishes fares in its feed. Only some
+  return `agencyFareUrl`, a link to their fare page. Fares are therefore
+  entered once and remembered per journey. `route()` already carries a `fare`
+  field for the day a feed provides one. *Build when a destination you use
+  actually publishes fares, or if you decide a paid routing provider is worth
+  it — Google Directions does return fares.*
 
 ## Bigger, only if the app sticks
 

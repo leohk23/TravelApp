@@ -254,3 +254,20 @@ export function matchAirports(rows, q, limit = 8) {
   scored.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2].name.localeCompare(b[2].name));
   return scored.slice(0, limit).map(x => x[2]);
 }
+
+/**
+ * Identifies a journey by the services ridden, so a fare entered once can be
+ * offered again. Central to Tsim Sha Tsui on the TWL is the same trip on
+ * Thursday as it was on Monday.
+ *
+ * Walking legs are already excluded upstream; they cost nothing and their
+ * stop names vary with the exact door you started from.
+ */
+export function fareKey(lines = []) {
+  if (!lines.length) return '';
+  return lines
+    .map(l => [l.line, l.from, l.to]
+      .map(v => String(v ?? '').trim().toLowerCase())
+      .join('>'))
+    .join('|');
+}

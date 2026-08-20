@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -127,5 +127,16 @@ assert.equal(matchAirports(AIR, "heathrow")[0].code, "LHR", "name match");
 assert.deepEqual(matchAirports(AIR, "zzz"), [], "no match is empty, not everything");
 assert.deepEqual(matchAirports(AIR, "n"), [], "one letter is too vague to rank");
 assert.equal(matchAirports(AIR, "NRT")[0].label, "Tokyo, JP");
+
+// --- recognising the same journey again ---
+const RIDE = [{ line: "TWL", from: "Central", to: "Tsim Sha Tsui" }];
+assert.equal(fareKey(RIDE), "twl>central>tsim sha tsui");
+assert.equal(fareKey([{ line: "TWL", from: " central ", to: "TSIM SHA TSUI" }]), fareKey(RIDE),
+  "same journey despite spacing and case");
+assert.notEqual(fareKey([{ line: "ISL", from: "Central", to: "Tsim Sha Tsui" }]), fareKey(RIDE),
+  "a different line is a different fare");
+assert.equal(fareKey([]), "", "a walk-only leg has no fare identity");
+assert.equal(fareKey([{ line: "A", from: "x", to: "y" }, { line: "B", from: "y", to: "z" }]),
+  "a>x>y|b>y>z", "a two-leg journey keys on both");
 
 console.log('all good');

@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -10,6 +10,7 @@ const blank = () => ({
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day plans
   mapView: 'split', split: 0.72,   // Day plan layout and plan/map size ratio
+  fares: {},                       // journey key -> amount you paid last time
   expenses: [],
 });
 
@@ -1006,17 +1007,32 @@ $('#actDlg').addEventListener('close', () => {
 function legRow(d, row) {
   const li = document.createElement('li');
   li.className = 'leg' + (row.leg ? '' : ' bad');
+  // No agency in the feeds tested publishes GTFS fares, so there is no amount to
+  // read. What we can do is recognise a journey you have already paid for.
+  const key = row.leg ? fareKey(row.leg.lines) : '';
+  const known = key ? state.fares?.[key] : undefined;
+  const url = row.leg?.fareUrl;
   li.innerHTML = `
     <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
     <span class="via">${esc(row.leg ? row.leg.summary : 'no public transport found - walk it, or check the day has a date set')}</span>
-    <button class="fare" title="Add what this leg cost to Expenses">+ fare</button>`;
+    ${url ? `<a class="fare-link" href="${esc(url)}" target="_blank" rel="noopener"
+       title="Operator fare information">fares</a>` : ''}
+    <button class="fare${known != null ? ' known' : ''}"
+      title="${known != null ? 'Remembered from the last time you rode this' : 'Add what this leg cost'}">
+      ${known != null ? `${esc(state.currency)} ${known}` : '+ fare'}</button>`;
+
   li.querySelector('.fare').onclick = async () => {
-    const v = +await askText({
+    const entered = await askText({
       title: 'What did this leg cost?',
       body: `${d.items[row.from].name} → ${d.items[row.to].name}`,
-      label: state.currency, type: 'number', confirm: 'Add to expenses',
+      label: state.currency, value: known != null ? String(known) : '',
+      type: 'number', confirm: 'Add to expenses',
     });
+    const v = +entered;
     if (!v) return;
+    // Remembered against the services ridden, so the same journey on another day
+    // offers the amount instead of an empty box.
+    if (key) state.fares = { ...state.fares, [key]: v };
     state.expenses.push({
       desc: `Transit: ${d.items[row.from].name} → ${d.items[row.to].name}`,
       amount: v, payer: state.members[0], sharedBy: [...state.members],

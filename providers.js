@@ -164,12 +164,21 @@ export async function route(from, to, when, signal) {
   // Earliest arrival wins; MOTIS returns a pareto set, not a sorted list.
   const best = options.reduce((a, b) => (new Date(b.endTime) < new Date(a.endTime) ? b : a));
   const arrival = new Date(best.endTime);
+  const ridden = (best.legs || []).filter(l => l.mode !== 'WALK');
   return {
     seconds: Math.max(60, Math.round((arrival - when) / 1000)),
     summary: (best.legs || []).map(legLabel).join('  →  '),
     transfers: best.transfers ?? 0,
     arrival: arrival.toISOString(),
-    fare: null, // Transitous carries no fare data; add fares by hand on the leg
+    // Which services you actually ride, used to recognise a repeated journey.
+    lines: ridden.map(l => ({
+      line: l.routeShortName || l.routeLongName || modeLabel(l.mode),
+      from: l.from?.name || '', to: l.to?.name || '',
+    })),
+    // No agency in the feeds tested publishes GTFS fares, so there is no amount
+    // to read. Some publish a link to their fare page, which is the next best.
+    fare: null,
+    fareUrl: ridden.find(l => l.agencyFareUrl)?.agencyFareUrl || null,
   };
 }
 
