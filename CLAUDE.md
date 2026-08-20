@@ -64,12 +64,17 @@ One object in `localStorage['travelapp']`, written by `save()`:
   days: [{
     date, city, start,                       // "2026-04-02", "Tokyo", "09:00"
     cityPt,                                  // cached geocode of city, for search bias
+    seeded,                                  // hotel origin already offered once
     items: [{ name, address?, lat?, lng?, stayMin }],  // no lat/lng = free-form entry
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id
 }
 ```
+
+The first stop of a day is seeded from the hotel covering that night, once, the
+first time a stop is added. `seeded` records that it happened so deleting the
+hotel stop does not make it come back.
 
 A day item is a **place** only when it carries coordinates. Without them it is a
 free-form entry — "breakfast", "buy JR pass" — that occupies `stayMin` on the

@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const blankDay = () => ({ date: '', city: '', start: '09:00', items: [], legs: [] });
+const blankDay = () => ({ date: '', city: '', start: '09:00', items: [], legs: [], seeded: false });
 const blank = () => ({
   name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
@@ -233,7 +233,36 @@ function applySplit() {
 }
 
 /* ---------- place search ---------- */
-const addPoi = p => { day().items.push(p); save(); recalc(); };
+/** The stay covering a given day, if one is booked. */
+function stayFor(d) {
+  return d.date ? state.itinerary.find(b => isStay(b.kind) && staysOn(b, d.date)) : null;
+}
+
+/**
+ * Adds a stop, seeding the day from your hotel the first time.
+ *
+ * A day almost always starts where you slept, and without that origin the first
+ * leg is routed from nowhere. Seeded once per day and remembered, so deleting
+ * the hotel stop does not make it reappear.
+ */
+const addPoi = p => {
+  const d = day();
+  if (!d.items.length && !d.seeded) {
+    d.seeded = true;
+    const hotel = stayFor(d);
+    // Only when the hotel was picked from search: a typed-in name carries no
+    // coordinates, and geocoding here would stall the add.
+    if (hotel?.lat != null) {
+      d.items.push({
+        name: hotel.ref || hotel.from, address: hotel.from,
+        lat: hotel.lat, lng: hotel.lng, stayMin: 0,
+      });
+      toast(`Started the day at ${hotel.ref || hotel.from}.`, 'ok');
+    }
+  }
+  d.items.push(p);
+  save(); recalc();
+};
 
 /** Bias search near where you already are that day, else near the day's city. */
 async function biasPoint() {
@@ -672,7 +701,11 @@ function renderPlan() {
     list.append(row.type === 'item' ? itemRow(d, row, ord) : legRow(d, row));
   }
   if (!d.items.length) {
-    list.innerHTML = '<li class="empty">Search for a place, or add a free-form entry like "breakfast" or "buy JR pass".</li>';
+    const hotel = stayFor(d);
+    const origin = hotel?.lat != null && !d.seeded
+      ? ` Your first stop will start from ${esc(hotel.ref || hotel.from)}.`
+      : '';
+    list.innerHTML = `<li class="empty">Search for a place, or add a free-form entry like "breakfast" or "buy JR pass".${origin}</li>`;
   }
   drawMap();
 }
