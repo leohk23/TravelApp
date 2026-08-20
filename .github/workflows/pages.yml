@@ -15,7 +15,9 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Every run publishes BOTH branches, so a cancelled run means nothing ships.
+  # Queue them instead; last one wins and still contains everything.
+  cancel-in-progress: false
 
 jobs:
   deploy:
