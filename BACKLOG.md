@@ -9,6 +9,36 @@ Deliberately not built yet. Each line says what would trigger building it.
   between browsers or back one up, so it returns as soon as the data is worth
   keeping. *Rebuild before the first real trip.* About 20 lines: a Blob download
   of `state`, and a file input that merges the parsed object over `blank()`.
+  Give preview a separate storage key when this returns, so testing cannot
+  overwrite the production trip.
+
+## Reliability and tidy-up
+
+- **Cancel stale route calculations.** Two overlapping `recalc()` runs can
+  write results for an old stop order. Give each day an `AbortController` or a
+  generation counter, and capture the original day in every async add. *Build
+  when editing while the busy indicator is visible produces a wrong leg.*
+- **Validate the persisted route cache.** Changing a trip's dates currently
+  recalculates only the selected day, leaving other days with routes for the old
+  timetable. Store a small input signature with `legs`, or clear affected days.
+  *Build before date-shifting a trip that already has routed days.*
+- **Keep expenses attached when party names change.** Renaming a member can
+  leave the old name in `payer`, and fractional splits can leave a one-cent
+  remainder. Map old names to new names and settle in integer minor units.
+  *Build before settling a real shared trip.*
+- **Defensive state loading.** Add a schema version and a tested
+  `normalizeState()` so malformed or older localStorage cannot stop the app from
+  opening. *Build when the next stored-data migration is needed.*
+- **Self-refreshing app shell.** Shell updates rely on manually bumping
+  `sw.js`'s cache version. Move to network-first or stale-while-revalidate for
+  local shell files. *Build the first time a deployed change looks stale.*
+- **Focused boundary tests.** Add mocked provider responses plus checks for
+  storage migration, member renaming and route-cache invalidation. Keep
+  `node:assert`; no test framework is needed. *Build alongside those fixes.*
+- **Dev-server and documentation housekeeping.** Bind `serve.mjs` to localhost,
+  replace its string-prefix path check with a real containment check, remove its
+  unused import, and keep provider documentation aligned with the runtime.
+  *Build before sharing the dev server on a network.*
 
 ## Likely next
 
@@ -19,9 +49,6 @@ Deliberately not built yet. Each line says what would trigger building it.
 - **Real route shapes on the map.** Currently straight lines between markers.
   Transitous returns an encoded polyline per leg that Leaflet can draw directly.
   *Build when the straight lines start misleading you about where you go.*
-- **Per-stop notes / links.** Booking references, ticket URLs, "try the
-  tonkotsu". One free-text field on a POI, mirroring what bookings already have.
-  *Build the first time you keep it in a separate notes app.*
 - **Pin the last stop too.** Optimise pins only the first stop. Days that end
   back at the hotel want both ends pinned — `optimizeOrder` already takes a
   flag, it just needs `pinLast`. *Build when a day ends far from bed.*

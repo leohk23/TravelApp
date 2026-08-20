@@ -2,6 +2,41 @@
 
 export const pad = n => String(n).padStart(2, '0');
 
+const zonedParts = (date, timeZone) => Object.fromEntries(
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(date)
+    .filter(p => p.type !== 'literal')
+    .map(p => [p.type, +p.value]),
+);
+
+/** A date/time entered in the destination's timezone, returned as an instant. */
+export function zonedDateTime(dateISO, time, timeZone, now = new Date()) {
+  if (!dateISO) {
+    const p = zonedParts(now, timeZone);
+    dateISO = `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+  }
+  const [year, month, day] = dateISO.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  const wall = Date.UTC(year, month - 1, day, hour, minute);
+  const offsetAt = instant => {
+    const p = zonedParts(new Date(instant), timeZone);
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - instant;
+  };
+
+  // Twice handles an offset change between the UTC guess and the local instant.
+  let instant = wall - offsetAt(wall);
+  instant = wall - offsetAt(instant);
+  const out = new Date(instant);
+  const actual = zonedParts(out, timeZone);
+  if ([actual.year, actual.month, actual.day, actual.hour, actual.minute].join() !==
+      [year, month, day, hour, minute].join()) {
+    throw new Error(`${time} does not exist in ${timeZone} on ${dateISO}.`);
+  }
+  return out;
+}
+
 /** minutes-since-midnight -> "09:05" (with " +1" for next day) */
 export function fmtTime(m) {
   const h = Math.floor(m / 60), d = Math.floor(h / 24);
@@ -185,4 +220,37 @@ export function spreadCities(cities, n) {
     for (let i = 0; i < take; i++) out.push(c);
   }
   return out.slice(0, n);
+}
+
+/**
+ * Ranks airport index rows against a query.
+ * Rows are [iata, name, city, country, lat, lng].
+ *
+ * Exact code first: someone typing "NRT" means Narita, not every airport whose
+ * name happens to contain those letters.
+ */
+export function matchAirports(rows, q, limit = 8) {
+  const term = String(q || '').trim().toLowerCase();
+  if (term.length < 2) return [];
+  const code = term.toUpperCase();
+
+  const scored = [];
+  for (const [iata, name, city, country, lat, lng, size = 1] of rows) {
+    const n = name.toLowerCase(), c = (city || '').toLowerCase();
+    const rank = iata === code ? 0
+      : iata.startsWith(code) ? 1
+      : c.startsWith(term) ? 2
+      : n.startsWith(term) ? 3
+      : c.includes(term) ? 4
+      : n.includes(term) ? 5
+      : -1;
+    if (rank < 0) continue;
+    scored.push([rank, size, {
+      name, code: iata, kind: iata, lat, lng, type: 'airport',
+      label: [city, country].filter(Boolean).join(', '),
+    }]);
+  }
+  // Match quality, then airport size, then name for a stable order.
+  scored.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2].name.localeCompare(b[2].name));
+  return scored.slice(0, limit).map(x => x[2]);
 }

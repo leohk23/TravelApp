@@ -2,7 +2,7 @@
 //
 // Bump VERSION on any change to the shell files, or browsers keep serving the
 // old copy. There is no build step to do it automatically.
-const VERSION = 'v14';
+const VERSION = 'v20';
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles-v1';
 const MAX_TILES = 400;          // roughly a city at a couple of zoom levels
@@ -10,6 +10,7 @@ const MAX_TILES = 400;          // roughly a city at a couple of zoom levels
 const LOCAL = [
   './', './index.html', './style.css', './app.js', './logic.js', './providers.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png',
+  './data/airports.json',
 ];
 const CDN = [
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
@@ -17,7 +18,9 @@ const CDN = [
 ];
 
 // Live lookups. Never cached: a stale timetable is worse than an honest error.
-const LIVE = new Set(['photon.komoot.io', 'nominatim.openstreetmap.org', 'api.transitous.org']);
+const LIVE = new Set([
+  'photon.komoot.io', 'nominatim.openstreetmap.org', 'api.transitous.org', 'api.open-meteo.com',
+]);
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {

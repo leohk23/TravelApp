@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -100,5 +100,32 @@ assert.deepEqual(spreadCities(["Solo"], 3), ["Solo", "Solo", "Solo"]);
 assert.deepEqual(spreadCities(["A", "B", "C"], 2), ["A", "B"], "more cities than days");
 assert.deepEqual(spreadCities([], 2), ["", ""], "no cities still fills the days");
 assert.deepEqual(spreadCities(["A"], 0), []);
+
+// --- a day's clock belongs to the destination, not the device running the app ---
+assert.equal(zonedDateTime('2026-08-21', '09:00', 'Asia/Tokyo').toISOString(),
+  '2026-08-21T00:00:00.000Z');
+assert.equal(zonedDateTime('2026-08-21', '09:00', 'Europe/London').toISOString(),
+  '2026-08-21T08:00:00.000Z', 'summer time is applied');
+assert.equal(zonedDateTime('2026-12-21', '09:00', 'Europe/London').toISOString(),
+  '2026-12-21T09:00:00.000Z', 'winter time is applied');
+assert.throws(() => zonedDateTime('2026-03-29', '01:30', 'Europe/London'), /does not exist/);
+
+// --- airport lookup by IATA code, the thing Photon cannot do ---
+const AIR = [                                  // [iata, name, city, country, lat, lng, size]
+  ["NRT", "Narita International Airport", "Tokyo", "JP", 35.76, 140.39, 0],
+  ["HND", "Tokyo Haneda International Airport", "Tokyo", "JP", 35.55, 139.78, 0],
+  ["LHR", "London Heathrow Airport", "London", "GB", 51.47, -0.45, 0],
+  ["NRN", "Weeze Airport", "Weeze", "DE", 51.60, 6.14, 1],
+];
+assert.equal(matchAirports(AIR, "NRT")[0].code, "NRT", "exact code wins");
+assert.equal(matchAirports(AIR, "nrt")[0].code, "NRT", "case does not matter");
+assert.deepEqual(matchAirports(AIR, "NR").map(a => a.code), ["NRT", "NRN"],
+  "code prefix ties break on airport size, so Narita beats Weeze");
+assert.deepEqual(matchAirports(AIR, "tokyo").map(a => a.code), ["NRT", "HND"],
+  "city match, same size, so airport name orders them");
+assert.equal(matchAirports(AIR, "heathrow")[0].code, "LHR", "name match");
+assert.deepEqual(matchAirports(AIR, "zzz"), [], "no match is empty, not everything");
+assert.deepEqual(matchAirports(AIR, "n"), [], "one letter is too vague to rank");
+assert.equal(matchAirports(AIR, "NRT")[0].label, "Tokyo, JP");
 
 console.log('all good');

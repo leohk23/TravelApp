@@ -1,16 +1,19 @@
-// Every remote call lives here. All three services are free and need no API key.
+// Every data-provider call lives here. All four services are free and need no API key.
 //
-//   search()  Photon      https://photon.komoot.io      type-ahead over OSM
+//   search(), searchAirports()  Photon  https://photon.komoot.io  type-ahead over OSM
 //   geocode() Nominatim   https://nominatim.openstreetmap.org   resolve one address
 //   route()   Transitous  https://api.transitous.org    public transport routing (MOTIS)
+//   timeZoneAt() Open-Meteo https://api.open-meteo.com  timezone from coordinates
 //
-// Nominatim allows 1 request/second and Transitous is community-run, so callers
-// throttle and cache rather than hammering. Swapping in a paid provider means
-// rewriting this file only.
+// Nominatim and Transitous are community-run, so callers debounce and cache
+// rather than hammering. Swapping in a paid provider means rewriting this file only.
 
 const PHOTON = 'https://photon.komoot.io/api/';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 const MOTIS = 'https://api.transitous.org/api/v1/plan';
+const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast';
+
+import { matchAirports } from './logic.js';
 
 const num = v => (typeof v === 'number' ? v : Number(v));
 
@@ -25,6 +28,36 @@ export const STAY_TAGS = [
   'tourism:hotel', 'tourism:hostel', 'tourism:guest_house',
   'tourism:apartment', 'tourism:motel',
 ];
+
+/**
+ * Global airport picker; a trip's destination is the wrong bias for one end.
+ *
+ * Backed by a committed IATA index rather than Photon, because Photon indexes
+ * airport names but not codes: "Narita" matches, "NRT" does not. Overpass can
+ * query the iata tag, but its public endpoints answered 500 or refused, which
+ * is no basis for a type-ahead. The index also works with no signal.
+ *
+ * Photon stays as the fallback for anything the index has never heard of.
+ */
+let airportIndex = null;
+const loadAirports = () => (airportIndex ||= fetch(new URL('./data/airports.json', import.meta.url))
+  .then(r => (r.ok ? r.json() : Promise.reject(new Error(`airports.json ${r.status}`))))
+  .catch(err => { airportIndex = null; throw err; }));
+
+export async function searchAirports(q, signal) {
+  const term = q.trim().toLowerCase();
+  if (term.length < 2) return [];
+
+  let rows = null;
+  try { rows = await loadAirports(); } catch { /* fall through to Photon */ }
+
+  if (rows) {
+    const hits = matchAirports(rows, q);
+    if (hits.length) return hits;
+  }
+
+  return runSearch(q, { tags: ['aeroway:aerodrome'], limit: 8, lang: 'en' }, signal);
+}
 
 /** Degrees box around a point. Photon's bbox is a hard filter; lat/lon alone is not. */
 function bboxAround({ lat, lng }, km) {
@@ -89,6 +122,18 @@ export async function geocode(q, signal) {
   if (!hits.length) throw new Error(`Not found: ${q}`);
   const h = hits[0];
   return { name: q, address: h.display_name, lat: num(h.lat), lng: num(h.lon), stayMin: 60 };
+}
+
+/** IANA timezone at a coordinate, e.g. "Asia/Tokyo". */
+export async function timeZoneAt({ lat, lng }, signal) {
+  const u = new URL(OPEN_METEO);
+  u.searchParams.set('latitude', lat);
+  u.searchParams.set('longitude', lng);
+  u.searchParams.set('timezone', 'auto');
+  u.searchParams.set('forecast_days', '0');
+  const { timezone } = await getJSON(u, signal);
+  if (!timezone) throw new Error('Could not determine the local timezone.');
+  return timezone;
 }
 
 const modeLabel = m => (m || '').toLowerCase().replace(/_/g, ' ');

@@ -1,16 +1,15 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
-import { search, searchCity, geocode, route, haversine, STAY_TAGS } from './providers.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const blankDay = () => ({ date: '', city: '', start: '09:00', items: [], legs: [], seeded: false });
+const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', items: [], legs: [] });
 const blank = () => ({
   name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day plans
-  split: 0.6,                      // list/map width ratio on the Day plan tab
+  mapView: 'split', split: 0.72,   // Day plan layout and plan/map size ratio
   expenses: [],
 });
 
@@ -19,10 +18,11 @@ let state = { ...blank(), ...JSON.parse(localStorage.getItem(STORE) || 'null') }
 for (const d of state.days) {          // days carried `pois` before free-form items existed
   if (d.pois && !d.items) { d.items = d.pois; delete d.pois; }
   d.items ||= [];
+  delete d.seeded;                     // replaced by linked hotel-origin items
 }
-// The map used to take the larger half. Nudge anyone still on that exact
-// default onto the new one, but leave a ratio they actually chose alone.
-if (state.split === 0.42) state.split = 0.6;
+// Move old defaults to the compact-map default; leave custom ratios alone.
+if (state.split === 0.42 || state.split === 0.6) state.split = 0.72;
+if (state.mapView === 'list') state.mapView = 'split';
 const save = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -90,12 +90,24 @@ function toast(msg, kind = 'bad') {
 let busy = 0;
 const setBusy = n => { busy += n; $('#busy').hidden = busy <= 0; };
 
-/** Departure clock for a day. Timetables differ by weekday, so the date matters. */
-function startDate(d) {
-  const [h, mi] = d.start.split(':').map(Number);
-  const t = d.date ? new Date(`${d.date}T${pad(h)}:${pad(mi)}:00`) : new Date();
-  if (!d.date) t.setHours(h, mi, 0, 0);
-  return t;
+/** Resolve once per labelled city; an unlabelled day follows its first place. */
+async function dayTimeZone(d) {
+  if (d.timeZone) return d.timeZone;
+  if (d.city && !d.cityPt) {
+    const g = await geocode(d.city);
+    d.cityPt = { lat: g.lat, lng: g.lng };
+    save();
+  }
+  const point = d.cityPt || d.items.find(isPlace);
+  if (!point) throw new Error('Set this day\'s city or add a place before calculating transit.');
+  const timeZone = await timeZoneAt(point);
+  if (d.city) { d.timeZone = timeZone; save(); }
+  return timeZone;
+}
+
+/** Departure clock in the destination, never the device's timezone. */
+async function startDate(d) {
+  return zonedDateTime(d.date, d.start, await dayTimeZone(d));
 }
 
 /* ---------- routing ---------- */
@@ -105,7 +117,7 @@ async function recalc() {
   if (!pairs.length) { d.legs = []; save(); return render(); }
   setBusy(1);
   try {
-    let t = startDate(d);
+    let t = await startDate(d);
     d.legs = [];
     for (const [from, to] of pairs) {
       // Everything between the two places still costs time, notes included.
@@ -122,6 +134,8 @@ async function recalc() {
       renderPlan();
     }
     render();
+  } catch (e) {
+    toast(e.message);
   } finally { setBusy(-1); }
 }
 
@@ -167,14 +181,27 @@ function drawMap() {
   map.fitBounds(places.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 15 });
 }
 
-/* ---------- resizable list/map split ---------- */
+/* ---------- plan/map views and resizable split ---------- */
 const MIN_SPLIT = 0.18, MAX_SPLIT = 0.82;
 const EXPAND_ICON = 'M3 3h7v2H5v5H3V3zm11 0h7v7h-2V5h-5V3zM3 14h2v5h5v2H3v-7zm16 0h2v7h-7v-2h5v-5z';
 const COLLAPSE_ICON = 'M10 3v5a2 2 0 0 1-2 2H3V8h5V3h2zm4 0h2v5h5v2h-5a2 2 0 0 1-2-2V3zM3 14h5a2 2 0 0 1 2 2v5H8v-5H3v-2zm13 0h5v2h-5v5h-2v-5a2 2 0 0 1 2-2z';
 
-function applySplit() {
-  const pane = $('#localCols').querySelector('.pane');
-  pane.style.flexBasis = `${(state.split ?? 0.6) * 100}%`;
+function applyMapLayout() {
+  const cols = $('#localCols');
+  const view = state.mapView === 'map' ? 'map' : 'split';
+  const split = state.split ?? 0.72;
+  cols.classList.toggle('view-map', view === 'map');
+  cols.querySelector('.pane').style.flexBasis = `${split * 100}%`;
+  const splitter = $('#localSplit');
+  splitter.setAttribute('aria-orientation', matchMedia('(max-width: 820px)').matches ? 'horizontal' : 'vertical');
+  splitter.setAttribute('aria-valuemin', Math.round(MIN_SPLIT * 100));
+  splitter.setAttribute('aria-valuemax', Math.round(MAX_SPLIT * 100));
+  splitter.setAttribute('aria-valuenow', Math.round(split * 100));
+  const full = view === 'map';
+  const btn = $('#mapFull');
+  btn.title = full ? 'Show plan and map' : 'Expand map';
+  btn.setAttribute('aria-label', btn.title);
+  btn.querySelector('path').setAttribute('d', full ? COLLAPSE_ICON : EXPAND_ICON);
 }
 
 {
@@ -182,12 +209,14 @@ function applySplit() {
   const splitter = $('#localSplit');
   let dragging = false;
 
-  const setFromX = clientX => {
+  const vertical = () => matchMedia('(max-width: 820px)').matches;
+  const setFromPointer = e => {
     const r = cols.getBoundingClientRect();
-    if (!r.width) return;
-    const next = (clientX - r.left) / r.width;
+    const size = vertical() ? r.height : r.width;
+    if (!size) return;
+    const next = vertical() ? (e.clientY - r.top) / size : (e.clientX - r.left) / size;
     state.split = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, next));
-    applySplit();
+    applyMapLayout();
     map?.invalidateSize();
   };
 
@@ -197,7 +226,7 @@ function applySplit() {
     splitter.classList.add('active');
     e.preventDefault();
   });
-  splitter.addEventListener('pointermove', e => { if (dragging) setFromX(e.clientX); });
+  splitter.addEventListener('pointermove', e => { if (dragging) setFromPointer(e); });
   splitter.addEventListener('pointerup', e => {
     if (!dragging) return;
     dragging = false;
@@ -212,64 +241,135 @@ function applySplit() {
   // Keyboard, because a drag handle with no alternative is unusable for some.
   splitter.addEventListener('keydown', e => {
     const step = e.shiftKey ? 0.1 : 0.02;
-    if (e.key === 'ArrowLeft') state.split = Math.max(MIN_SPLIT, (state.split ?? 0.6) - step);
-    else if (e.key === 'ArrowRight') state.split = Math.min(MAX_SPLIT, (state.split ?? 0.6) + step);
+    const less = vertical() ? e.key === 'ArrowUp' : e.key === 'ArrowLeft';
+    const more = vertical() ? e.key === 'ArrowDown' : e.key === 'ArrowRight';
+    if (less) state.split = Math.max(MIN_SPLIT, (state.split ?? 0.72) - step);
+    else if (more) state.split = Math.min(MAX_SPLIT, (state.split ?? 0.72) + step);
     else return;
     e.preventDefault();
-    applySplit(); map?.invalidateSize(); save();
+    applyMapLayout(); map?.invalidateSize(); save();
   });
 
   splitter.addEventListener('dblclick', () => {
-    state.split = 0.6; applySplit(); map?.invalidateSize(); save();
+    state.split = 0.72; applyMapLayout(); map?.invalidateSize(); save();
   });
 
   $('#mapFull').onclick = () => {
-    const full = cols.classList.toggle('mapfull');
-    const btn = $('#mapFull');
-    btn.title = full ? 'Show the list' : 'Expand map';
-    btn.querySelector('path').setAttribute('d', full ? COLLAPSE_ICON : EXPAND_ICON);
-    // Leaflet has to be told; the container changed size without a window resize.
+    state.mapView = state.mapView === 'map' ? 'split' : 'map';
+    applyMapLayout(); save();
     setTimeout(() => map?.invalidateSize(), 0);
   };
 
-  addEventListener('resize', () => map?.invalidateSize());
+  addEventListener('resize', () => { applyMapLayout(); map?.invalidateSize(); });
 }
 
 /* ---------- place search ---------- */
-/** The stay covering a given day, if one is booked. */
+/** The stay for a day: the one you check into today, else the one covering it. */
 function stayFor(d) {
-  return d.date ? state.itinerary.find(b => isStay(b.kind) && staysOn(b, d.date)) : null;
+  if (!d.date) return null;
+  const covering = state.itinerary.filter(b => isStay(b.kind) && staysOn(b, d.date));
+  return covering.find(b => dateOf(b.start) === d.date) || covering[0] || null;
+}
+
+/** Airport stops a flight contributes to this day, with the time they happen. */
+function flightStops(d) {
+  if (!d.date) return [];
+  const out = [];
+  for (const b of state.itinerary) {
+    if (b.kind !== 'Flight') continue;
+    // Only airports picked from the list carry coordinates, and without those
+    // there is nothing to route to.
+    if (dateOf(b.start) === d.date && b.fromPt) {
+      out.push({ at: b.start, role: 'depart', pt: b.fromPt, label: b.from, flightId: b.id });
+    }
+    if (dateOf(b.end) === d.date && b.toPt) {
+      out.push({ at: b.end, role: 'arrive', pt: b.toPt, label: b.to, flightId: b.id });
+    }
+  }
+  return out.sort((x, y) => String(x.at).localeCompare(String(y.at)));
 }
 
 /**
- * Adds a stop, seeding the day from your hotel the first time.
+ * Rebuilds the stops a day derives from its bookings: the airports you pass
+ * through and the hotel you sleep in, so the map and the routing show the real
+ * journey rather than starting at the first sight you typed in.
  *
- * A day almost always starts where you slept, and without that origin the first
- * leg is routed from nowhere. Seeded once per day and remembered, so deleting
- * the hotel stop does not make it reappear.
+ * Order comes from the clock. The hotel lands after the last arrival of the
+ * day, because that is when you can actually drop your bags, and anything
+ * departing later goes at the end.
  */
-const addPoi = p => {
-  const d = day();
-  if (!d.items.length && !d.seeded) {
-    d.seeded = true;
-    const hotel = stayFor(d);
-    // Only when the hotel was picked from search: a typed-in name carries no
-    // coordinates, and geocoding here would stall the add.
-    if (hotel?.lat != null) {
-      d.items.push({
-        name: hotel.ref || hotel.from, address: hotel.from,
-        lat: hotel.lat, lng: hotel.lng, stayMin: 0,
-      });
-      toast(`Started the day at ${hotel.ref || hotel.from}.`, 'ok');
+async function ensureLinkedStops(d = day()) {
+  const hotel = stayFor(d);
+  const flights = flightStops(d);
+
+  let hotelPoint = hotel && hotel.lat != null && hotel.lng != null ? hotel : null;
+  if (hotel && !hotelPoint) {
+    const q = hotel.from || hotel.ref;
+    if (q) {
+      setBusy(1);
+      try {
+        const g = await geocode(q);
+        hotel.lat = g.lat; hotel.lng = g.lng;
+        if (!hotel.from) hotel.from = g.address;
+        hotelPoint = hotel;
+      } finally { setBusy(-1); }
     }
   }
-  d.items.push(p);
+
+  const derived = [];
+  const lastArrival = flights.reduce((k, f, i) => (f.role === 'arrive' ? i : k), -1);
+  flights.forEach((f, i) => {
+    derived.push({
+      name: f.label || (f.role === 'arrive' ? 'Arrival airport' : 'Departure airport'),
+      address: f.pt.name || f.pt.address || '',
+      lat: f.pt.lat, lng: f.pt.lng, stayMin: 0,
+      flightId: f.flightId, role: f.role,
+    });
+    if (i === lastArrival && hotelPoint) derived.push(hotelItem(hotel, hotelPoint));
+  });
+  if (lastArrival < 0 && hotelPoint) derived.unshift(hotelItem(hotel, hotelPoint));
+
+  // Head is everything up to and including the hotel; the rest is the tail.
+  const hotelAt = derived.findIndex(it => it.hotelId);
+  const cut = hotelAt >= 0 ? hotelAt + 1 : derived.length;
+  const head = derived.slice(0, cut);
+  const tail = derived.slice(cut);
+
+  const own = d.items.filter(it => !it.hotelId && !it.flightId);
+  const sameSpot = (a, b) => isPlace(a) && isPlace(b) && a.lat === b.lat && a.lng === b.lng;
+  const kept = own.filter(it => ![...head, ...tail].some(x => sameSpot(x, it)));
+  const next = [...head, ...kept, ...tail];
+
+  const key = list => JSON.stringify(list.map(it =>
+    [it.name, it.address, it.lat, it.lng, it.stayMin, it.hotelId, it.flightId, it.role]));
+  if (key(next) === key(d.items)) return false;
+  d.items = next;
+  save();
+  return true;
+}
+
+const hotelItem = (hotel, point) => ({
+  name: hotel.ref || hotel.from, address: hotel.from || point.address,
+  lat: point.lat, lng: point.lng, stayMin: 0, hotelId: hotel.id,
+});
+
+const hotelStartPending = new WeakSet();
+async function prepareDayPlan(d = day()) {
+  if (hotelStartPending.has(d)) return;
+  hotelStartPending.add(d);
+  try {
+    if (await ensureLinkedStops(d) && d === day()) recalc();
+  } catch (err) { toast(`Could not place this day's bookings: ${err.message}`); }
+  finally { hotelStartPending.delete(d); }
+}
+
+const addPoi = p => {
+  day().items.push(p);
   save(); recalc();
 };
 
 /** Bias search near where you already are that day, else near the day's city. */
-async function biasPoint() {
-  const d = day();
+async function biasPoint(d = day()) {
   const places = d.items.filter(isPlace);
   if (places.length) return places[places.length - 1];
   if (d.city && !d.cityPt) {
@@ -365,14 +465,6 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
   input.onblur = () => setTimeout(hide, 150);
 }
 
-function mountSearch() {
-  attachSearch($('#poiSearch'), {
-    bias: biasPoint,
-    clearOnPick: true,
-    onPick: h => addPoi({ name: h.name, address: h.label, lat: h.lat, lng: h.lng, stayMin: 60 }),
-  });
-}
-
 /* ---------- day tabs (shared by Itinerary and Day plan) ---------- */
 function renderDays() {
   const tabs = $('#dayTabs');
@@ -384,7 +476,10 @@ function renderDays() {
     b.innerHTML = `<span class="t-n">Day ${i + 1}</span>`
       + (d.date ? `<span class="t-d">${esc(fmtDayLabel(d.date))}</span>` : '')
       + (showCity && d.city ? `<span class="t-c">${esc(d.city)}</span>` : '');
-    b.onclick = () => { state.dayIdx = i; save(); render(); };
+    b.onclick = () => {
+      state.dayIdx = i; save(); render();
+      if (state.tab === 'local') prepareDayPlan(d);
+    };
     tabs.append(b);
   });
   const add = document.createElement('button');
@@ -444,7 +539,18 @@ const dateOf = dt => (dt || '').slice(0, 10);
 
 // A stay covers every night from check-in through check-out morning.
 const staysOn = (b, d) => isStay(b.kind) && b.start && dateOf(b.start) <= d && d <= dateOf(b.end || b.start);
-const movesOn = (b, d) => !isStay(b.kind) && dateOf(b.start) === d;
+const movesOn = (b, d) => !isStay(b.kind)
+  && (dateOf(b.start) === d || (b.kind === 'Flight' && dateOf(b.end) === d));
+
+function movementPhase(b, date) {
+  if (b.kind !== 'Flight') return b.kind;
+  const departs = dateOf(b.start) === date;
+  const arrives = dateOf(b.end) === date;
+  if (departs && arrives) return 'Flight';
+  return departs ? 'Departing flight' : 'Arriving flight';
+}
+
+const movementTime = (b, date) => timeOf(dateOf(b.start) === date ? b.start : b.end);
 
 const newBooking = (kind, start = '') =>
   ({ id: crypto.randomUUID(), kind, ref: '', from: '', to: '', start, end: '', conf: '', cost: 0, notes: '' });
@@ -465,6 +571,13 @@ function stayLabel(b) {
   const t1 = timeOf(b.start), t2 = timeOf(b.end);
   const from = fmtDayLabel(b.start) + (t1 ? ` ${t1}` : '');
   const to = b.end ? fmtDayLabel(b.end) + (t2 ? ` ${t2}` : '') : '?';
+  return `${from}  →  ${to}`;
+}
+
+function journeyLabel(b) {
+  if (!b.start) return 'Set depart and arrive';
+  const from = fmtDayLabel(b.start) + (timeOf(b.start) ? ` ${timeOf(b.start)}` : '');
+  const to = b.end ? fmtDayLabel(b.end) + (timeOf(b.end) ? ` ${timeOf(b.end)}` : '') : '?';
   return `${from}  →  ${to}`;
 }
 
@@ -491,17 +604,18 @@ function bookingCard(b, { showDate = false } = {}) {
       <button class="x" title="Remove">✕</button>
     </div>
 
-    <div class="brow">
-      <input class="f-from grow" value="${esc(b.from || '')}" placeholder="${esc(cfg.from)}">
-      ${stay ? '' : `<span class="arrow">→</span><input class="f-to grow" value="${esc(b.to || '')}" placeholder="${esc(cfg.to)}">`}
-      ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button><button class="startday" title="Add as the first stop of this day under Day plan">start day here</button>' : ''}
+    <div class="brow${b.kind === 'Flight' ? ' flight-route' : ''}">
+      ${b.kind === 'Flight'
+        ? `<span class="ac grow"><input class="f-from" value="${esc(b.from || '')}" placeholder="Search departure airport…" autocomplete="off"></span>`
+        : `<input class="f-from grow" value="${esc(b.from || '')}" placeholder="${esc(cfg.from)}">`}
+      ${stay ? '' : `<span class="arrow">→</span>${b.kind === 'Flight'
+        ? `<span class="ac grow"><input class="f-to" value="${esc(b.to || '')}" placeholder="Search arrival airport…" autocomplete="off"></span>`
+        : `<input class="f-to grow" value="${esc(b.to || '')}" placeholder="${esc(cfg.to)}">`}`}
+      ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button>' : ''}
     </div>
 
     <div class="brow">
-      ${stay
-        ? `<button class="daterange grow" type="button">${esc(stayLabel(b))}</button>`
-        : `<label>${b.kind === 'Car' ? 'Pick up' : 'Depart'}<input type="datetime-local" class="f-start" value="${esc(b.start || '')}"></label>
-           <label>${b.kind === 'Car' ? 'Drop off' : 'Arrive'}<input type="datetime-local" class="f-end" value="${esc(b.end || '')}"></label>`}
+      <button class="daterange grow" type="button">${esc(stay ? stayLabel(b) : journeyLabel(b))}</button>
       <small class="span">${esc(spanLabel(b))}</small>
     </div>
 
@@ -522,17 +636,18 @@ function bookingCard(b, { showDate = false } = {}) {
   };
   bind('.f-kind', 'kind', true);
   bind('.f-ref', 'ref');
-  bind('.f-from', 'from');
-  bind('.f-to', 'to');
-  bind('.f-start', 'start', true);
-  bind('.f-end', 'end', true);
+  if (b.kind !== 'Flight') {
+    bind('.f-from', 'from');
+    bind('.f-to', 'to');
+  }
 
   li.querySelector('.daterange')?.addEventListener('click', async () => {
     const res = await pickRange({
-      title: b.ref || 'Hotel dates',
+      title: b.ref || (stay ? 'Hotel dates' : `${b.kind} times`),
       range: b.start ? [dateOf(b.start), dateOf(b.end || b.start)] : null,
       t1: timeOf(b.start),
       t2: timeOf(b.end),
+      mode: stay ? 'stay' : 'journey',
     });
     if (!res) return;
     // Times are optional: without one the value stays date-only, which every
@@ -570,36 +685,50 @@ function bookingCard(b, { showDate = false } = {}) {
     bias: biasPoint,
     tags: STAY_TAGS,
     onPick: h => {
-      // Fills the name, address and coordinates at once, so neither the map link
-      // nor "start day here" has to geocode again.
+      // Fills the name, address and coordinates at once, so the map and Day-plan
+      // origin never have to geocode a selected hotel again.
       b.ref = h.name; b.from = h.label; b.lat = h.lat; b.lng = h.lng;
       save(); render();
     },
   });
+  if (stay) {
+    const address = li.querySelector('.f-from');
+    address.onchange = e => {
+      if (e.target.value !== b.from) { delete b.lat; delete b.lng; }
+      b.from = e.target.value;
+      save();
+    };
+  }
+
+  if (b.kind === 'Flight') {
+    const airportPicker = (sel, key) => {
+      const input = li.querySelector(sel);
+      const pointKey = `${key}Pt`;
+      input.onchange = e => {
+        if (e.target.value !== b[key]) delete b[pointKey];
+        b[key] = e.target.value;
+        save();
+      };
+      attachSearch(input, {
+        find: searchAirports,
+        onPick: h => {
+          const shown = h.code || h.name;      // "NRT" beats "Narita International Airport"
+          input.value = shown;
+          b[key] = shown;
+          b[pointKey] = { lat: h.lat, lng: h.lng, name: h.name, address: h.label };
+          save();
+        },
+      });
+    };
+    airportPicker('.f-from', 'from');
+    airportPicker('.f-to', 'to');
+  }
 
   li.querySelector('.mapit')?.addEventListener('click', () => {
     const url = b.lat != null
       ? `https://www.openstreetmap.org/?mlat=${b.lat}&mlon=${b.lng}#map=17/${b.lat}/${b.lng}`
       : `https://www.openstreetmap.org/search?query=${encodeURIComponent(b.from || b.ref)}`;
     if (b.lat != null || b.from || b.ref) window.open(url, '_blank', 'noopener');
-  });
-
-  li.querySelector('.startday')?.addEventListener('click', async () => {
-    if (b.lat != null) {                       // picked from the list, already located
-      day().items.unshift({ name: b.ref || b.from, address: b.from, lat: b.lat, lng: b.lng, stayMin: 0 });
-      save(); showTab('local'); recalc();
-      return;
-    }
-    const q = b.from || b.ref;
-    if (!q) return toast('Give the hotel an address first, or pick it from the search list.');
-    setBusy(1);
-    try {
-      const poi = await geocode(q);
-      poi.name = b.ref || poi.name;
-      poi.stayMin = 0;
-      day().items.unshift(poi);
-      save(); setBusy(-1); showTab('local'); recalc();
-    } catch (err) { toast(err.message); setBusy(-1); }
   });
 
   return li;
@@ -695,6 +824,7 @@ let dragFrom = null;
 function renderPlan() {
   const d = day();
   $('#dayStart').value = d.start;
+  renderDayBookings(d);
   const list = $('#stops');
   list.innerHTML = '';
 
@@ -706,23 +836,47 @@ function renderPlan() {
     list.append(row.type === 'item' ? itemRow(d, row, ord) : legRow(d, row));
   }
   if (!d.items.length) {
-    const hotel = stayFor(d);
-    const origin = hotel?.lat != null && !d.seeded
-      ? ` Your first stop will start from ${esc(hotel.ref || hotel.from)}.`
-      : '';
-    list.innerHTML = `<li class="empty">Search for a place, or add a free-form entry like "breakfast" or "buy JR pass".${origin}</li>`;
+    list.innerHTML = '<li class="empty">Use + to add a place or activity.</li>';
   }
   drawMap();
+}
+
+function renderDayBookings(d) {
+  const host = $('#dayBookings');
+  const flights = d.date
+    ? state.itinerary.filter(b => b.kind === 'Flight' && movesOn(b, d.date))
+    : [];
+  host.replaceChildren(...flights.map(b => {
+    const departs = dateOf(b.start) === d.date;
+    const arrives = dateOf(b.end) === d.date;
+    const time = departs && arrives
+      ? [timeOf(b.start), timeOf(b.end)].filter(Boolean).join(' → ')
+      : timeOf(departs ? b.start : b.end);
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'day-booking';
+    card.innerHTML = `<span class="day-booking-kind">${movementPhase(b, d.date)}</span>`
+      + `<b>${esc(b.ref || 'Flight')}</b>`
+      + (time ? `<time>${esc(time)}</time>` : '')
+      + (b.from || b.to ? `<span class="day-booking-route">${esc(b.from || '?')} → ${esc(b.to || '?')}</span>` : '');
+    card.onclick = () => {
+      state.itinView = 'day';
+      showTab('itinerary');
+      setTimeout(() => document.querySelector(`[data-bid="${b.id}"]`)?.scrollIntoView({ block: 'center' }), 0);
+    };
+    return card;
+  }));
+  host.hidden = !flights.length;
 }
 
 function itemRow(d, row, ord) {
   const it = d.items[row.i];
   const li = document.createElement('li');
-  li.className = 'stop' + (row.place ? '' : ' note');
+  li.className = 'stop' + (row.place ? '' : ' note') + (it.flightId ? ' via-airport' : '') + (it.hotelId ? ' via-hotel' : '');
   const sub = it.notes || (row.place ? it.address : '') || '';
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
-    <div class="marker">${row.place ? ord.get(row.i) : '•'}</div>
+    <div class="marker">${it.flightId ? (it.role === 'arrive' ? '🛬' : '🛫') : it.hotelId ? '🏨' : row.place ? ord.get(row.i) : '•'}</div>
     <div class="when">${fmtTime(row.arrive)}<small>${fmtTime(row.depart)}</small></div>
     <button class="what-btn" type="button">
       <b>${esc(it.name || (row.place ? 'Unnamed stop' : 'What are you doing?'))}</b>
@@ -748,56 +902,104 @@ function itemRow(d, row, ord) {
 
 /* ---------- activity editor ---------- */
 let actIdx = null;
+let actNew = false;
+let actPicked = null;
 
 function openActivity(i) {
+  actNew = i == null;
   actIdx = i;
-  const it = day().items[i];
+  const it = actNew ? { name: '', stayMin: 60 } : day().items[i];
   if (!it) return;
-  $('#actTitle').textContent = isPlace(it) ? 'Stop' : 'Entry';
+  actPicked = isPlace(it) ? { name: it.name, address: it.address, lat: it.lat, lng: it.lng } : null;
+  $('#actTitle').textContent = actNew ? 'Add to this day' : (isPlace(it) ? 'Stop' : 'Activity');
   $('#actAddr').textContent = it.address || '';
   $('#actAddr').hidden = !it.address;
   $('#actName').value = it.name || '';
+  $('#actName').removeAttribute('aria-invalid');
+  $('#actError').textContent = '';
+  $('#actError').hidden = true;
   $('#actMin').value = it.stayMin ?? 60;
   $('#actNotes').value = it.notes || '';
+  $('#actDelete').hidden = actNew;
+  $('#actDlg').returnValue = '';
   $('#actDlg').showModal();
   $('#actName').focus();
 }
 
 /** Reads the dialog back into the item. Returns true if routing must redo. */
 function commitActivity() {
-  const it = day().items[actIdx];
+  const it = actNew ? {} : day().items[actIdx];
   if (!it) return false;
   const mins = Math.max(0, +$('#actMin').value || 0);
   const timingChanged = mins !== (it.stayMin ?? 60);
+  const routeChanged = actPicked && (it.lat !== actPicked.lat || it.lng !== actPicked.lng);
   it.name = $('#actName').value.trim();
   it.stayMin = mins;
+  if (actPicked) {
+    it.address = actPicked.address || actPicked.label;
+    it.lat = actPicked.lat;
+    it.lng = actPicked.lng;
+  }
   const notes = $('#actNotes').value.trim();
   if (notes) it.notes = notes; else delete it.notes;
+  if (actNew) {
+    if (actPicked) addPoi(it);
+    else { day().items.push(it); save(); render(); }
+    return false;
+  }
   save();
-  return timingChanged;
+  return timingChanged || routeChanged;
 }
 
-$('#actDone').onclick = () => $('#actDlg').close('ok');
+attachSearch($('#actName'), {
+  bias: biasPoint,
+  onPick: h => {
+    actPicked = { ...h, address: h.label };
+    $('#actName').value = h.name;
+    $('#actAddr').textContent = h.label;
+    $('#actAddr').hidden = !h.label;
+  },
+});
+
+$('#actDone').onclick = () => {
+  if (!$('#actName').value.trim()) {
+    $('#actName').setAttribute('aria-invalid', 'true');
+    $('#actError').textContent = 'Name the place or activity first.';
+    $('#actError').hidden = false;
+    $('#actName').focus();
+    return;
+  }
+  $('#actDlg').close('ok');
+};
+$('#actName').addEventListener('input', () => {
+  $('#actName').removeAttribute('aria-invalid');
+  $('#actError').hidden = true;
+});
+$('#actCancel').onclick = () => $('#actDlg').close('');
 $('#actPresets').onclick = e => {
   const b = e.target.closest('[data-min]');
   if (b) $('#actMin').value = b.dataset.min;
 };
 $('#actDelete').onclick = async () => {
-  const it = day().items[actIdx];
-  $('#actDlg').close();                       // stacked modals fight over focus
+  const idx = actIdx;
+  const it = day().items[idx];
+  $('#actDlg').close('delete');               // stacked modals fight over focus
   const ok = await ask({
     title: `Remove ${it?.name || 'this stop'}?`,
     confirm: 'Remove', danger: true,
   });
   if (!ok) return;
-  day().items.splice(actIdx, 1);
+  day().items.splice(idx, 1);
   actIdx = null;
   save(); recalc();
 };
 $('#actDlg').addEventListener('close', () => {
-  if (actIdx === null) return;
+  if ($('#actDlg').returnValue !== 'ok') {
+    actIdx = null; actNew = false; actPicked = null; return;
+  }
+  if (!actNew && actIdx === null) return;
   const needsRoute = commitActivity();
-  actIdx = null;
+  actIdx = null; actNew = false; actPicked = null;
   if (needsRoute) recalc(); else render();
 });
 
@@ -886,7 +1088,7 @@ function renderOverview() {
     ['Party', state.members.join(', ')],
   ].filter(Boolean);
   $('#ovMeta').innerHTML = facts
-    .map(([k, v]) => `<span class="fact"><span class="k">${k}</span>${esc(v)}</span>`)
+    .map(([k, v]) => `<span class="fact${k === 'When' ? ' when' : ''}"><span class="k">${k}</span>${esc(v)}</span>`)
     .join('');
 
   const showCity = multiCity();
@@ -912,8 +1114,8 @@ function renderOverview() {
       ).join('<br>')}</span></div>` : ''}
 
       ${moves.length ? `<div class="ovline"><span class="k">Moving</span><span>${moves.map(b =>
-        `${ICON[b.kind] || ''} ${esc(b.ref || b.kind)}${b.from || b.to ? ` ${esc(b.from)} → ${esc(b.to)}` : ''}${
-          timeOf(b.start) ? ` at ${esc(timeOf(b.start))}` : ''}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
+        `${esc(movementPhase(b, d.date))}: ${ICON[b.kind] || ''} ${esc(b.ref || b.kind)}${b.from || b.to ? ` ${esc(b.from)} → ${esc(b.to)}` : ''}${
+          movementTime(b, d.date) ? ` at ${esc(movementTime(b, d.date))}` : ''}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
       ).join('<br>')}</span></div>` : ''}
 
       ${d.items.length ? `<ol class="ovstops">${rows.filter(r => r.type === 'item').map(r => `
@@ -950,7 +1152,10 @@ function showTab(name) {
   }
   syncChrome();
   // Leaflet measures 0x0 while its container is hidden.
-  if (name === 'local') setTimeout(() => map?.invalidateSize(), 0);
+  if (name === 'local') {
+    prepareDayPlan();
+    setTimeout(() => map?.invalidateSize(), 0);
+  }
   save();
 }
 
@@ -1086,6 +1291,8 @@ async function buildTrip() {
 }
 
 $('#setupBtn').onclick = openWizard;
+$('#aboutBtn').onclick = () => $('#aboutDlg').showModal();
+$('#aboutDone').onclick = () => $('#aboutDlg').close();
 $('#wAddCity').onclick = () => $('#wCities').append(cityRow());
 const bumpCount = n => {
   const el = $('#wCount');
@@ -1335,18 +1542,24 @@ async function applyRange(startISO, endISO) {
   recalc();
 }
 
-/* ---------- range dialog, for hotel stays ---------- */
+/* ---------- shared booking date dialog ---------- */
 let rangePending = null;      // [startISO, endISO] chosen but not yet saved
 let rangeResolve = null;
+let rangeMode = 'stay';
 
 const rangeCal = makeCalendar($('#rangeCal'), {
   getRange: () => rangePending,
   onRange: (s, e) => { rangePending = [s, e]; updateRangeSub(); },
-  hint: 'Drag across the nights, or tap check-in then check-out.',
+  hint: 'Drag across the dates, or tap the first and last.',
 });
 
 function updateRangeSub() {
   if (!rangePending) { $('#rangeSub').textContent = 'No dates set.'; return; }
+  if (rangeMode === 'journey') {
+    const days = spanDays(...rangePending);
+    $('#rangeSub').textContent = days === 1 ? 'Same-day journey.' : `${days} calendar days.`;
+    return;
+  }
   const nights = spanDays(...rangePending) - 1;
   $('#rangeSub').textContent = nights > 0
     ? `${nights} night${nights > 1 ? 's' : ''}`
@@ -1354,13 +1567,19 @@ function updateRangeSub() {
 }
 
 /** Resolves { start, end, t1, t2 } or null. Times may be empty strings. */
-function pickRange({ title, range, t1 = '', t2 = '' }) {
+function pickRange({ title, range, t1 = '', t2 = '', mode = 'stay' }) {
   $('#rangeTitle').textContent = title;
+  rangeMode = mode;
   rangePending = range;
+  $('#rangeLabel1').textContent = mode === 'journey' ? 'Depart' : 'Check in';
+  $('#rangeLabel2').textContent = mode === 'journey' ? 'Arrive' : 'Check out';
+  $('#rangeCal .cal-hint').textContent = mode === 'journey'
+    ? 'Choose the departure and arrival dates.'
+    : 'Choose the check-in and check-out dates.';
   $('#rangeT1').value = t1;
   $('#rangeT2').value = t2;
   updateRangeSub();
-  rangeCal.focus(range?.[0]);
+  rangeCal.focus(range?.[0] || tripRange()?.[0]);
   $('#rangeDlg').returnValue = '';
   $('#rangeDlg').showModal();
   return new Promise(res => { rangeResolve = res; });
@@ -1409,6 +1628,7 @@ function renderDayTable() {
       onPick: h => {
         d.city = h.name;
         d.cityPt = { lat: h.lat, lng: h.lng };
+        delete d.timeZone;
         cityInput.value = h.name;
         save(); render(); renderDayTable();
       },
@@ -1418,6 +1638,7 @@ function renderDayTable() {
       if (v === (d.city || '')) return;         // unchanged, e.g. straight after a pick
       d.city = v;
       delete d.cityPt;                          // the cached point belonged to the old city
+      delete d.timeZone;
       save(); render(); renderDayTable();
     };
 
@@ -1426,6 +1647,8 @@ function renderDayTable() {
         state.days[k].city = d.city;
         if (d.cityPt) state.days[k].cityPt = { ...d.cityPt };
         else delete state.days[k].cityPt;
+        if (d.timeZone) state.days[k].timeZone = d.timeZone;
+        else delete state.days[k].timeZone;
       }
       save(); render(); renderDayTable();
       toast(`${d.city || 'Blank'} applied to the following days.`, 'ok');
@@ -1515,25 +1738,7 @@ for (const btn of document.querySelectorAll('[data-iv]')) {
 }
 $('#itinSearch').oninput = e => { itinQuery = e.target.value; renderItinerary(); };
 
-$('#addPoi').onsubmit = async e => {
-  e.preventDefault();
-  const input = $('#poiInput');
-  const lines = input.value.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!lines.length) return;
-  setBusy(1);
-  try {
-    for (const [i, q] of lines.entries()) {
-      if (i) await sleep(1100);        // Nominatim allows 1 request per second
-      day().items.push(await geocode(q));
-    }
-    input.value = ''; save(); setBusy(-1); recalc();
-  } catch (err) { toast(err.message); save(); setBusy(-1); render(); }
-};
-$('#addNote').onclick = () => {
-  day().items.push({ name: '', stayMin: 30 });   // no coords, so never routed
-  save(); renderPlan();
-  openActivity(day().items.length - 1);          // straight into the editor
-};
+$('#addActivity').onclick = () => openActivity(null);
 $('#printBtn').onclick = () => window.print();
 $('#optimise').onclick = optimize;
 $('#recalc').onclick = recalc;
@@ -1556,7 +1761,7 @@ $('#addExpense').onsubmit = e => {
 
 for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => showTab(b.dataset.tab);
 
-applySplit();
+applyMapLayout();
 $('#env').hidden = !location.pathname.includes('/preview/');
 
 // Installs the app shell so it opens instantly and works with no signal.
@@ -1569,5 +1774,4 @@ if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
 const firstRun = !localStorage.getItem(STORE);
 render();
 showTab(state.tab);
-mountSearch();
 if (firstRun) openWizard();

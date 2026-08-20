@@ -21,18 +21,20 @@ convenience, not part of the deployed site.
 | Need | Service | Cost |
 |---|---|---|
 | Search-as-you-type places | [Photon](https://photon.komoot.io) (komoot, OSM) | free, no key |
-| Resolve a pasted address | [Nominatim](https://nominatim.openstreetmap.org) (OSM) | free, no key, 1 req/sec |
+| Resolve a typed hotel or city | [Nominatim](https://nominatim.openstreetmap.org) (OSM) | free, no key, 1 req/sec |
 | Public transport routing | [Transitous](https://transitous.org) (MOTIS) | free, no key |
+| Destination timezone | [Open-Meteo](https://open-meteo.com/) | free, no key |
 | Map tiles | [OpenStreetMap](https://www.openstreetmap.org) | free, no key |
 
-All four are in [providers.js](providers.js) — that one file is the whole
-integration surface, so swapping in a paid provider later touches nothing else.
+The four data calls are in [providers.js](providers.js); Leaflet loads map tiles
+directly. Transit times are converted in the destination timezone, not the
+timezone of the phone or computer planning the trip.
 
 Two things worth knowing:
 
 - **Nominatim and Transitous are run by volunteers.** Be a good citizen: the
-  app debounces search, caches routed legs, and throttles bulk geocoding to 1
-  request/second. If this ever grows real traffic, self-host or pay someone.
+  app debounces search and caches routed legs. If this ever grows real traffic,
+  self-host or pay someone.
 - **Transit coverage comes from community-contributed GTFS feeds.** Verified
   working in Hong Kong, Tokyo, London and Berlin. Somewhere without a feed will
   show "no public transport found" — that is missing data, not a broken app.
@@ -45,13 +47,18 @@ Three ribbon tabs, with the day tabs shared between the first two.
 Stays, Transport, This day) with a search over names and confirmation numbers. Hotels
 match every night from check-in to check-out, so you always see where you sleep.
 Each booking holds a confirmation number, cost and notes. `+ expense` files a
-booking's cost into Expenses; `start day here` drops a hotel in as the day's
-first stop.
+booking's cost into Expenses. A booked hotel automatically becomes the day's
+first stop. Flight endpoints use airport search, while departure and arrival
+dates use the same calendar as trip setup. Flights appear on both their
+departure and arrival days and link back to their itinerary entry.
 
-**Day plan** — search a place to add it, drag the ⠿ handle to reorder, and
-transit legs recompute with real line numbers and stop names. **Optimise**
-reorders by geographic proximity, then re-looks-up the transit. Edit a stop's
-name inline; edit the minutes to change how long you stay.
+**Day plan** — tap + and either search for a place or type a free-form activity
+in the same prompt. Drag the ⠿ handle to reorder, and transit legs recompute
+with real line numbers and stop names. **Optimise** reorders by geographic
+proximity, then re-looks-up the transit. Tap an item to edit its name, duration
+or notes. The map starts compact; drag the divider vertically on a phone or
+horizontally on a desktop to adjust it. The layout is remembered, and the map's
+expand button opens a full-map view when needed.
 
 **Expenses** — set the party, add costs, toggle chips for who shares each one.
 The settle-up panel shows the fewest transfers that square everyone up.

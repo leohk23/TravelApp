@@ -87,21 +87,26 @@ One object in `localStorage['travelapp']`, written by `save()`:
 {
   name, currency, members: [name], tab,      // tab = which ribbon section is open
   dayIdx,                                    // which day tab is open
-  itinerary: [{ id, kind, ref, from, to, start, end, conf, cost, notes }],
+  mapView, split,                             // "split" | "map", plan-pane ratio
+  itinerary: [{ id, kind, ref, from, to, fromPt?, toPt?, start, end, conf, cost, notes }],
   days: [{
-    date, city, start,                       // "2026-04-02", "Tokyo", "09:00"
+    date, city, timeZone, start,             // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00"
     cityPt,                                  // cached geocode of city, for search bias
-    seeded,                                  // hotel origin already offered once
-    items: [{ name, address?, lat?, lng?, stayMin }],  // no lat/lng = free-form entry
+    items: [{ name, address?, lat?, lng?, stayMin, hotelId?, flightId?, role? }],
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id
 }
 ```
 
-The first stop of a day is seeded from the hotel covering that night, once, the
-first time a stop is added. `seeded` records that it happened so deleting the
-hotel stop does not make it come back.
+Some of a day's stops are **derived from its bookings** and rebuilt by
+`ensureLinkedStops()`: the airports a flight passes through that day
+(`flightId` plus `role`) and the hotel you sleep in (`hotelId`). Order comes
+from the clock, with the hotel placed after the last arrival, so an arrival day
+routes airport to hotel rather than starting at the first sight you typed.
+
+Airports only become stops when picked from the airport list, since only then do
+they carry coordinates. Never hand-edit a derived item: the next rebuild wins.
 
 A day item is a **place** only when it carries coordinates. Without them it is a
 free-form entry — "breakfast", "buy JR pass" — that occupies `stayMin` on the
@@ -125,13 +130,20 @@ There are no API keys anywhere. Nothing secret ever enters this repo.
 Everything network-facing is in `providers.js`:
 
 - **Photon** (`photon.komoot.io`) — type-ahead search. Always pass a `near`
-  bias; unbiased results are close to useless.
-- **Nominatim** (`nominatim.openstreetmap.org`) — resolves one pasted address.
-  Hard limit of 1 request/second, so bulk adds sleep 1.1s between calls.
+  bias for local places; airport search is global and filtered to aerodromes.
+- **Nominatim** (`nominatim.openstreetmap.org`) — resolves a typed hotel or city
+  when it was not selected from search.
 - **Transitous** (`api.transitous.org`, a MOTIS instance) — transit routing.
   Returns a pareto set, not a sorted list, so `route()` picks earliest arrival.
   No fare data, and its `one-to-many` matrix endpoint rejected every coordinate
   format tried.
+- **Airport index** (`data/airports.json`) — committed IATA lookup built by
+  `tools/make-airports.mjs` from OurAirports. Photon indexes airport names but
+  not codes, so "NRT" found nothing; Overpass could query the tag but its public
+  endpoints answered 500 or refused. Precached, so it works with no signal.
+- **Open-Meteo** (`api.open-meteo.com`) — resolves coordinates to an IANA
+  timezone. The day caches it so its local start time becomes the correct UTC
+  instant for Transitous without depending on the device timezone.
 - **OpenStreetMap tiles** via Leaflet.
 
 Nominatim and Transitous are volunteer-run. Debounce, cache, throttle. Both
@@ -142,7 +154,7 @@ Because no free transit matrix exists, `optimize()` builds its cost matrix from
 `haversine()` distance and only then fetches real legs for the chosen order.
 
 Attribution for OSM data is a licence condition, not decoration. It lives in the
-Leaflet attribution control and the credit line under the search box.
+Leaflet attribution control and the credit line under the day plan.
 
 ## Deploying
 
