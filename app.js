@@ -1103,6 +1103,10 @@ function legRow(d, row) {
     } else loadFares();
   }
 
+  // The fare table speaks the local currency; expenses are kept in the trip's.
+  // Prefilling across that gap would record 180 yen as 180 dollars.
+  const localCurrency = guess && guess.currency !== state.currency ? guess.currency : null;
+
   const shown = known != null ? `${esc(state.currency)} ${known}`
     : guess ? `~ ${esc(guess.currency)} ${guess.amount}`
     : '+ fare';
@@ -1125,11 +1129,15 @@ function legRow(d, row) {
   if (li.querySelector('.fare')) li.querySelector('.fare').onclick = async () => {
     const entered = await askText({
       title: 'What did this leg cost?',
-      body: guess
-        ? `${d.items[row.from].name} → ${d.items[row.to].name}. The figure below is a rough ${guess.city} fare, not from the operator.`
-        : `${d.items[row.from].name} → ${d.items[row.to].name}`,
+      body: localCurrency
+        ? `${d.items[row.from].name} → ${d.items[row.to].name}. A single fare here is roughly ${localCurrency} ${guess.amount}, but this trip records expenses in ${state.currency}, so enter what you paid in ${state.currency}.`
+        : guess
+          ? `${d.items[row.from].name} → ${d.items[row.to].name}. The figure below is a rough ${guess.city} fare, not from the operator.`
+          : `${d.items[row.from].name} → ${d.items[row.to].name}`,
       label: state.currency,
-      value: known != null ? String(known) : guess ? String(guess.amount) : '',
+      value: known != null ? String(known)
+        : guess && !localCurrency ? String(guess.amount)
+        : '',
       type: 'number', confirm: 'Add to expenses',
     });
     const v = +entered;

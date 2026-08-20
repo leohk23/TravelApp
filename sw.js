@@ -1,8 +1,13 @@
-// Service worker: makes the app open instantly and work with no signal.
+// Service worker: makes the app work with no signal, without ever serving a
+// stale build to someone who is online.
 //
-// Bump VERSION on any change to the shell files, or browsers keep serving the
-// old copy. There is no build step to do it automatically.
-const VERSION = 'v24';
+// The shell is network-first: a reload always gets the deployed code, falling
+// back to cache only when the network fails. Cache-first was quietly serving
+// an old version for a whole extra reload after every deploy, which meant bugs
+// were being reported against code that no longer existed.
+//
+// VERSION still names the cache so an old one can be cleared on activate.
+const VERSION = 'v25';
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles-v1';
 const MAX_TILES = 400;          // roughly a city at a couple of zoom levels
@@ -47,8 +52,48 @@ self.addEventListener('fetch', e => {
   const url = new URL(request.url);
   if (LIVE.has(url.hostname)) return;                       // straight to the network
   if (url.hostname === 'tile.openstreetmap.org') return e.respondWith(tile(request));
-  e.respondWith(shellFirst(request));
+
+  if (url.origin === location.origin) {
+    // Big reference data changes rarely and costs a lot to re-fetch, so serve it
+    // from cache and refresh in the background. Code must never be stale.
+    return e.respondWith(/\/data\/[^/]+\.json$/.test(url.pathname)
+      ? staleWhileRevalidate(request)
+      : networkFirst(request));
+  }
+
+  e.respondWith(shellFirst(request));   // pinned CDN files, safe to cache forever
 });
+
+/** Always the deployed version when online; the cached one when not. */
+async function networkFirst(request) {
+  const cache = await caches.open(SHELL);
+  try {
+    const res = await fetch(request);
+    if (res.ok) cache.put(request, res.clone());
+    return res;
+  } catch (err) {
+    const hit = await cache.match(request, { ignoreSearch: true });
+    if (hit) return hit;
+    if (request.mode === 'navigate') {
+      const shell = await cache.match('./index.html');
+      if (shell) return shell;
+    }
+    throw err;
+  }
+}
+
+/** Instant from cache, refreshed for next time. */
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(SHELL);
+  const hit = await cache.match(request, { ignoreSearch: true });
+  const fresh = fetch(request)
+    .then(res => { if (res.ok) cache.put(request, res.clone()); return res; })
+    .catch(() => null);
+  if (hit) return hit;
+  const res = await fresh;
+  if (res) return res;
+  throw new Error(`offline and not cached: ${request.url}`);
+}
 
 /** Cache-first for anything that makes up the app itself. */
 async function shellFirst(request) {

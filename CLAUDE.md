@@ -162,6 +162,15 @@ Because no free transit matrix exists, `optimize()` builds its cost matrix from
 Attribution for OSM data is a licence condition, not decoration. It lives in the
 Leaflet attribution control and the credit line under the day plan.
 
+## Caching
+
+`sw.js` is **network-first for same-origin code**: a reload always gets the
+deployed build, and the cache is only a fallback for being offline. Cache-first
+served the previous build for one extra reload after every deploy, which meant
+bugs got reported against code that no longer existed. Large reference data
+under `data/` is stale-while-revalidate, and map tiles stay cache-first with a
+400-entry cap.
+
 ## Deploying
 
 `main` → site root. `preview` → `/preview/`. One workflow,

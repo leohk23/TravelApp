@@ -29,9 +29,6 @@ Deliberately not built yet. Each line says what would trigger building it.
 - **Defensive state loading.** Add a schema version and a tested
   `normalizeState()` so malformed or older localStorage cannot stop the app from
   opening. *Build when the next stored-data migration is needed.*
-- **Self-refreshing app shell.** Shell updates rely on manually bumping
-  `sw.js`'s cache version. Move to network-first or stale-while-revalidate for
-  local shell files. *Build the first time a deployed change looks stale.*
 - **Focused boundary tests.** Add mocked provider responses plus checks for
   storage migration, member renaming and route-cache invalidation. Keep
   `node:assert`; no test framework is needed. *Build alongside those fixes.*
