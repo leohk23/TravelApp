@@ -10,6 +10,7 @@ const blank = () => ({
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day plans
   mapView: 'split', split: 0.72,   // Day plan layout and plan/map size ratio
+  placeLang: 'en',                 // 'en' or 'local' for how place names are shown
   fares: {},                       // journey key -> amount you paid last time
   expenses: [],
 });
@@ -492,7 +493,10 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
       try {
         hits = (find
           ? await find(q, abort.signal)
-          : await search(q, { near: await bias?.(), tags }, abort.signal)
+          // 'local' drops the lang hint, so Photon answers with the name on the
+          // signs: bilingual in Hong Kong, Japanese in Japan.
+          : await search(q, { near: await bias?.(), tags,
+              lang: state.placeLang === 'local' ? null : 'en' }, abort.signal)
         ).slice(0, 6);   // fits without scrolling, see the pointerdown note above
         cursor = -1;
         draw();
@@ -983,7 +987,7 @@ function openJourney(d, row) {
     const walk = String(s.mode).toUpperCase() === 'WALK';
     const title = walk
       ? `Walk${s.metres != null ? ` ${s.metres} m` : ''}`
-      : `${esc(s.line || prettyMode(s.mode))}${s.headsign ? ` toward ${esc(s.headsign)}` : ''}`;
+      : `${esc(s.lineName || s.line || prettyMode(s.mode))}${s.headsign ? ` toward ${esc(s.headsign)}` : ''}`;
     const detail = walk
       ? (s.to && s.to !== 'END' ? `to ${esc(s.to)}` : '')
       : [`${esc(s.from)} to ${esc(s.to)}`,
@@ -1461,7 +1465,11 @@ async function buildTrip() {
 }
 
 $('#setupBtn').onclick = openWizard;
-$('#aboutBtn').onclick = () => $('#aboutDlg').showModal();
+$('#aboutBtn').onclick = () => {
+  $('#placeLang').value = state.placeLang || 'en';
+  $('#aboutDlg').showModal();
+};
+$('#placeLang').onchange = e => { state.placeLang = e.target.value; save(); };
 $('#aboutDone').onclick = () => $('#aboutDlg').close();
 $('#wAddCity').onclick = () => $('#wCities').append(cityRow());
 const bumpCount = n => {

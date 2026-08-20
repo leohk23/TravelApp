@@ -23,7 +23,8 @@
           [20, 5.05],
           [999, 6]
         ]
-      }
+      },
+      "urbanKm": 36
     },
     {
       "id": "hongkong",
@@ -52,7 +53,8 @@
           [999, 26]
         ]
       },
-      "exact": "mtr-fares.json"
+      "exact": "mtr-fares.json",
+      "urbanKm": 32
     },
     {
       "id": "tokyo",
@@ -129,6 +131,28 @@
           "between": ["tokyo-metro", "toei"],
           "amount": 70
         }
+      ],
+      "urbanKm": 45,
+      "routes": [
+        {
+          "id": "tokyo-kawaguchiko-bus",
+          "label": "Tokyo to Kawaguchiko highway bus",
+          "amount": 2200,
+          "note": "One way from Shinjuku. Other central Tokyo departure points run 2000 to 2600.",
+          "modes": ["BUS", "COACH"],
+          "between": [
+            {
+              "lat": 35.6896,
+              "lng": 139.7006,
+              "km": 25
+            },
+            {
+              "lat": 35.5008,
+              "lng": 138.7566,
+              "km": 15
+            }
+          ]
+        }
       ]
     },
     {
@@ -183,7 +207,8 @@
             [999, 330]
           ]
         }
-      ]
+      ],
+      "urbanKm": 32
     },
     {
       "id": "singapore",
@@ -199,7 +224,8 @@
           [19, 2.02],
           [999, 2.37]
         ]
-      }
+      },
+      "urbanKm": 24
     },
     {
       "id": "taipei",
@@ -219,7 +245,8 @@
           [20, 40],
           [999, 55]
         ]
-      }
+      },
+      "urbanKm": 28
     },
     {
       "id": "seoul",
@@ -235,7 +262,8 @@
           [20, 1600],
           [999, 1800]
         ]
-      }
+      },
+      "urbanKm": 36
     },
     {
       "id": "bangkok",
@@ -254,7 +282,8 @@
           [10, 33],
           [999, 47]
         ]
-      }
+      },
+      "urbanKm": 32
     },
     {
       "id": "paris",
@@ -273,7 +302,8 @@
         "*": [
           [999, 2.5]
         ]
-      }
+      },
+      "urbanKm": 24
     },
     {
       "id": "berlin",
@@ -287,7 +317,8 @@
           [3, 2.4],
           [999, 3.8]
         ]
-      }
+      },
+      "urbanKm": 28
     },
     {
       "id": "newyork",
@@ -300,9 +331,11 @@
         "*": [
           [999, 2.9]
         ]
-      }
+      },
+      "urbanKm": 32
     }
   ],
   "operators": "Where a city lists operators, each one charges separately and the journey pays the sum, which is how Tokyo actually works. Matching is case-insensitive substring on the agency name, first match wins, so put specific names before general ones.",
-  "exact": "Where a city names an exact table, journeys on that operator are priced from it rather than guessed. Everything else still falls back to the steps above."
+  "exact": "Where a city names an exact table, journeys on that operator are priced from it rather than guessed. Everything else still falls back to the steps above.",
+  "routes": "Named services priced as a whole. Urban distance bands are nonsense for a two-hour coach, so a journey longer than the city's urbanKm gets a named route fare or no estimate at all."
 }

@@ -321,6 +321,29 @@ export function exactFare(exact, steps) {
   return { amount: pair[0], covered: mine };
 }
 
+/**
+ * A named service priced as a whole, matched on where it starts and ends.
+ *
+ * Urban distance bands are nonsense for a long coach: the Tokyo to Kawaguchiko
+ * bus is 2200 yen, and pricing its 100 km as city metro gave 324.
+ */
+function namedRoute(city, ridden) {
+  for (const r of city.routes || []) {
+    if (r.modes && !ridden.some(s => r.modes.includes(String(s.mode || '').toUpperCase()))) continue;
+    const [a, b] = r.between || [];
+    if (!a || !b) continue;
+    const start = ridden[0], end = ridden[ridden.length - 1];
+    if (!start?.fromPt || !end?.toPt) continue;
+    // Either direction: the return trip is the same service.
+    const forward = kmBetween(start.fromPt, a) <= (a.km ?? 10)
+      && kmBetween(end.toPt, b) <= (b.km ?? 10);
+    const back = kmBetween(start.fromPt, b) <= (b.km ?? 10)
+      && kmBetween(end.toPt, a) <= (a.km ?? 10);
+    if (forward || back) return r;
+  }
+  return null;
+}
+
 /** First operator whose name matches, or null. Order in the data decides. */
 function operatorFor(city, agency) {
   const name = String(agency || "").toLowerCase();
@@ -354,6 +377,22 @@ export function estimateFare(table, from, to, steps = [], exact = null) {
 
   const city = fareCity(table, from);
   if (!city) return null;
+
+  // A named service is priced whole, before anything is measured.
+  const named = namedRoute(city, ridden);
+  if (named) {
+    return {
+      amount: named.amount, currency: city.currency, city: city.label,
+      breakdown: [{ operator: named.label, amount: named.amount, note: named.note }],
+      exact: false, route: named.label,
+    };
+  }
+
+  // Beyond the urban network the bands mean nothing, and a confidently wrong
+  // number is worse than none. Say nothing instead.
+  const spanKm = ridden.reduce((n, s) => n + (s.metres != null ? s.metres / 1000 : 0), 0);
+  const urbanKm = city.urbanKm ?? city.radiusKm ?? 40;
+  if (spanKm > urbanKm && !exact) return null;
 
   const breakdown = [];
 

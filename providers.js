@@ -78,11 +78,11 @@ function bboxAround({ lat, lng }, km) {
  *
  * Returns [{ name, label, kind, lat, lng }].
  */
-export async function search(q, { near, tags, radiusKm = 200, limit = 6 } = {}, signal) {
+export async function search(q, { near, tags, radiusKm = 200, limit = 6, lang = 'en' } = {}, signal) {
   // lang=en matters as much here as it does for cities: without it an English
   // query never reaches a Japanese name, so Hakone and Nikko were simply not
   // found, and what came back was unreadable to an English-speaking traveller.
-  const opts = { near, tags, limit, lang: "en" };
+  const opts = { near, tags, limit, ...(lang ? { lang } : {}) };
   if (!near) return runSearch(q, opts, signal);
 
   // The box is wide enough for a day trip, not just the city: Mt Fuji, Hakone
@@ -147,10 +147,32 @@ export async function timeZoneAt({ lat, lng }, signal) {
 
 const modeLabel = m => (m || '').toLowerCase().replace(/_/g, ' ');
 
+/**
+ * Transitous carries overlapping Tokyo feeds and one of them puts an internal
+ * route id in route_short_name, so a passenger was shown "3582461" where a line
+ * name belongs. Anything that is only digits and long is an id, not a name.
+ * Real bus routes keep their kanji (上４６) and survive this.
+ */
+const isRouteId = v => /^[0-9]{4,}$/.test(String(v || '').trim());
+
+/** Short label for a service: a line code, else its full name, else the mode. */
+function routeName(l) {
+  const short = String(l.routeShortName || '').trim();
+  if (short && !isRouteId(short)) return short;
+  const long = String(l.routeLongName || '').trim();
+  return long || modeLabel(l.mode);
+}
+
+/** Fuller label, preferred where there is room to show it. */
+function routeFullName(l) {
+  const long = String(l.routeLongName || '').trim();
+  if (long) return long;
+  return routeName(l);
+}
+
 function legLabel(l) {
   if (l.mode === 'WALK') return `walk ${Math.round(l.duration / 60)} min`;
-  const line = l.routeShortName || l.routeLongName || modeLabel(l.mode);
-  return `${line}  ${l.from?.name ?? '?'} → ${l.to?.name ?? '?'}`;
+  return `${routeName(l)}  ${l.from?.name ?? '?'} → ${l.to?.name ?? '?'}`;
 }
 
 /**
@@ -182,10 +204,13 @@ export async function route(from, to, when, signal) {
     // Every step, walking included, so the journey can be shown in full.
     steps: (best.legs || []).map(l => ({
       mode: l.mode || '',
-      line: l.routeShortName || l.routeLongName || '',
+      line: routeName(l),
+      lineName: routeFullName(l),        // the full name, for the journey view
       headsign: l.headsign || '',
       agency: l.agencyName || '',
       from: l.from?.name || '', to: l.to?.name || '',
+      fromPt: l.from?.lat != null ? { lat: l.from.lat, lng: l.from.lon } : null,
+      toPt: l.to?.lat != null ? { lat: l.to.lat, lng: l.to.lon } : null,
       seconds: l.duration ?? 0,
       metres: l.distance != null ? Math.round(l.distance) : null,
       stops: l.intermediateStops?.length ?? null,
@@ -193,7 +218,7 @@ export async function route(from, to, when, signal) {
     })),
     // Which services you actually ride, used to recognise a repeated journey.
     lines: ridden.map(l => ({
-      line: l.routeShortName || l.routeLongName || modeLabel(l.mode),
+      line: routeName(l),
       from: l.from?.name || '', to: l.to?.name || '',
       mode: l.mode || '',          // picks the fare table: a bus is not a metro
     })),

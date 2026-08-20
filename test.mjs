@@ -223,6 +223,32 @@ const longMetro = estimateFare(FARES, TOKYO, null, [
 assert.equal(longMetro.breakdown.length, 1, "same operator, one fare");
 assert.equal(longMetro.amount, 252, "16 km lands in the third band, not two short fares");
 
+// Long journeys must not be priced with city bands
+const KAWAGUCHIKO = { lat: 35.5008, lng: 138.7566 };
+const SHINJUKU = { lat: 35.6896, lng: 139.7006 };
+const coach = (fromPt, toPt, km) => ({ mode: "BUS", agency: "Fujikyu", metres: km * 1000, fromPt, toPt });
+
+const bus = estimateFare(FARES, TOKYO, KAWAGUCHIKO,
+  [coach(SHINJUKU, KAWAGUCHIKO, 100)]);
+assert.equal(bus.amount, 2200, "the named highway bus fare, not a metro band");
+assert.equal(bus.route, "Tokyo to Kawaguchiko highway bus");
+
+const backAgain = estimateFare(FARES, TOKYO, KAWAGUCHIKO,
+  [coach(KAWAGUCHIKO, SHINJUKU, 100)]);
+assert.equal(backAgain.amount, 2200, "the return trip is the same service");
+
+// A long journey with no named route says nothing rather than guessing badly
+const unknownLongHaul = estimateFare(FARES, TOKYO, null,
+  [{ mode: "REGIONAL_RAIL", agency: "Some Railway", metres: 120000,
+     fromPt: SHINJUKU, toPt: { lat: 36.75, lng: 139.6 } }]);
+assert.equal(unknownLongHaul, null,
+  "beyond the urban network, no estimate beats a wrong one");
+
+// Short journeys are unaffected
+assert.ok(estimateFare(FARES, TOKYO, null,
+  [ride("SUBWAY", 5, "東京メトロ Tokyo Metro")]).amount === 178,
+  "urban journeys still priced normally");
+
 // Osaka
 const OSAKA = { lat: 34.6937, lng: 135.5023 };
 assert.equal(estimateFare(FARES, OSAKA, null, [ride("SUBWAY", 2, "Osaka Metro")]).amount, 190);

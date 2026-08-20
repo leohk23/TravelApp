@@ -143,6 +143,10 @@ Everything network-facing is in `providers.js`:
   journeys from it. A network charges entry to exit however many lines you
   change, so it prices first-entry to last-exit, not per leg. Anything it
   cannot cover falls back to the bands below and the result stops being exact.
+- Transitous carries **overlapping Tokyo feeds**, and one puts an internal
+  route id in `route_short_name`. `routeName()` drops anything that is only
+  digits and long, so a passenger sees the line or the mode rather than
+  "3582461". Bus routes keep their kanji.
 - **Fare table** (`data/fares.json`) — approximate single fares per city, and
   per **operator** where a city lists them. Operators charge separately and the
   fares are summed, because that is how Tokyo works: Metro then Toei is two
@@ -152,6 +156,10 @@ Everything network-facing is in `providers.js`:
   authoritative: no agency publishes fares in an open feed without
   registration. It pre-fills the fare dialog and is never added silently, and a
   fare the traveller enters wins. Correct the JSON when a figure is wrong.
+  Cities also carry `urbanKm` and optional `routes`: beyond the urban network
+  the distance bands are meaningless, so a journey either matches a named route
+  or gets **no estimate at all**. Pricing the two-hour Kawaguchiko coach as city
+  metro produced 324 yen against a real 2200.
 - **Airport index** (`data/airports.json`) — committed IATA lookup built by
   `tools/make-airports.mjs` from OurAirports. Photon indexes airport names but
   not codes, so "NRT" found nothing; Overpass could query the tag but its public
