@@ -51,10 +51,11 @@ export async function search(q, { near, tags, radiusKm = 60, limit = 6 } = {}, s
   return runSearch(q, { near, tags, limit }, signal);   // box was too tight
 }
 
-async function runSearch(q, { near, tags, limit, box }, signal) {
+async function runSearch(q, { near, tags, limit, box, lang }, signal) {
   const u = new URL(PHOTON);
   u.searchParams.set('q', q);
   u.searchParams.set('limit', String(limit));
+  if (lang) u.searchParams.set('lang', lang);
   if (near) { u.searchParams.set('lat', near.lat); u.searchParams.set('lon', near.lng); }
   if (box) u.searchParams.set('bbox', box);
   for (const t of tags || []) u.searchParams.append('osm_tag', t);
@@ -64,9 +65,16 @@ async function runSearch(q, { near, tags, limit, box }, signal) {
     const p = f.properties;
     const [lng, lat] = f.geometry.coordinates;
     const name = p.name || [p.housenumber, p.street].filter(Boolean).join(' ') || p.city || 'Unnamed';
-    const label = [p.street !== name ? p.street : null, p.district, p.city, p.state, p.country]
-      .filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', ');
-    return { name, label, kind: (p.osm_value || p.osm_key || '').replace(/_/g, ' '), lat, lng };
+    const label = [p.street, p.district, p.city, p.county, p.state, p.country]
+      .filter(Boolean)
+      .filter(v => v !== name)                       // a city is not its own address
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .join(', ');
+    return {
+      name, label, lat, lng,
+      type: p.type,                                  // photon's normalised bucket
+      kind: (p.osm_value || p.osm_key || '').replace(/_/g, ' '),
+    };
   });
 }
 
@@ -127,4 +135,26 @@ export function haversine(a, b) {
   const s = Math.sin(dLat / 2) ** 2 +
     Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/**
+ * City search for labelling a day.
+ *
+ * Deliberately not tag-filtered: Tokyo is `place=province` in OSM, so any
+ * osm_tag list that looks right still misses it. Photon's normalised `type`
+ * does catch it, but only after the fact - hence over-fetching and filtering
+ * here. `lang=en` matters too: without it "tokyo" never matches 東京都.
+ *
+ * Global on purpose. The next city on a trip can be anywhere.
+ */
+const CITY_TYPES = new Set(['city', 'district', 'county', 'state']);
+
+export async function searchCity(q, signal) {
+  const hits = await runSearch(q, { limit: 25, lang: 'en' }, signal);
+  return hits
+    .filter(h => CITY_TYPES.has(h.type))
+    // Proper cities first; sort is stable, so Photon's ranking survives within
+    // each group and regions like "Kyoto Prefecture" fall below "Kyoto".
+    .sort((a, b) => (a.type === 'city' ? 0 : 1) - (b.type === 'city' ? 0 : 1))
+    .slice(0, 6);
 }

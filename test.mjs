@@ -50,6 +50,16 @@ assert.equal(fmtTime(mtl[1].arrive), '10:00', 'note starts when the first stop e
 assert.equal(mtl[2].min, 20);
 assert.equal(fmtTime(mtl[3].arrive), '10:50', '60min stop + 30min note + 20min travel');
 
+// scheduleDay must read legs under exactly the indices placePairs writes them to.
+// When these drifted apart, routing stored legs the timeline never looked up and
+// every journey silently rendered as "no route".
+const drift = [place(1, 60), { name: 'note' }, place(2, 60), place(3, 30), { name: 'tail' }];
+assert.deepEqual(
+  scheduleDay(drift, {}, '09:00').filter(r => r.type === 'leg').map(r => r.from),
+  placePairs(drift).map(([from]) => from),
+  'leg lookup keys must match the pairs routing computes',
+);
+
 assert.equal(fmtTime(1500), '01:00 +1');
 assert.equal(fmtDur(5400), '1h 30');
 

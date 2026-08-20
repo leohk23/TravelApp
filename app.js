@@ -1,5 +1,5 @@
 import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, fmtTime, fmtDur, pad } from './logic.js';
-import { search, geocode, route, haversine, STAY_TAGS } from './providers.js';
+import { search, searchCity, geocode, route, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
@@ -16,7 +16,7 @@ const blank = () => ({
 // Spread over blank() so trips saved by an older version pick up new keys.
 let state = { ...blank(), ...JSON.parse(localStorage.getItem(STORE) || 'null') };
 for (const d of state.days) {          // days carried `pois` before free-form items existed
-  if (d.items && !d.items) { d.items = d.items; delete d.items; }
+  if (d.pois && !d.items) { d.items = d.pois; delete d.pois; }
   d.items ||= [];
 }
 const save = () => localStorage.setItem(STORE, JSON.stringify(state));
@@ -95,19 +95,21 @@ function startDate(d) {
 /* ---------- routing ---------- */
 async function recalc() {
   const d = day();
-  if (d.items.length < 2) { d.legs = []; save(); return render(); }
+  const pairs = placePairs(d.items);
+  if (!pairs.length) { d.legs = []; save(); return render(); }
   setBusy(1);
   try {
     let t = startDate(d);
     d.legs = [];
-    for (let i = 0; i < d.items.length - 1; i++) {
-      t = new Date(t.getTime() + (d.items[i].stayMin ?? 60) * 60000);
+    for (const [from, to] of pairs) {
+      // Everything between the two places still costs time, notes included.
+      for (let k = from; k < to; k++) t = new Date(t.getTime() + (d.items[k].stayMin ?? 60) * 60000);
       try {
-        const leg = await route(d.items[i], d.items[i + 1], t);
-        d.legs[i] = leg;
+        const leg = await route(d.items[from], d.items[to], t);
+        d.legs[from] = leg;          // keyed by origin index, matching scheduleDay
         if (leg) t = new Date(t.getTime() + leg.seconds * 1000);
       } catch (e) {
-        d.legs[i] = null;
+        d.legs[from] = null;
         console.warn('routing failed', e);
       }
       save();          // keep partial results if a later leg fails
@@ -176,7 +178,7 @@ async function biasPoint() {
  * Attaches type-ahead to an input. Its parent must carry .ac (position:relative).
  * `bias` is async so it can geocode the day's city on first use.
  */
-function attachSearch(input, { onPick, bias, tags, clearOnPick = false, list }) {
+function attachSearch(input, { onPick, bias, tags, clearOnPick = false, list, find }) {
   if (!list) {
     list = document.createElement('ul');
     list.className = 'ac-list';
@@ -212,7 +214,9 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, list }) 
       abort?.abort();
       abort = new AbortController();
       try {
-        hits = await search(q, { near: await bias?.(), tags }, abort.signal);
+        hits = find
+          ? await find(q, abort.signal)
+          : await search(q, { near: await bias?.(), tags }, abort.signal);
         cursor = -1;
         draw();
       } catch (e) {
@@ -650,12 +654,21 @@ function cityRow(name = '', nights = 3) {
   const div = document.createElement('div');
   div.className = 'cityrow';
   div.innerHTML = `
-    <input class="c-name grow" value="${esc(name)}" placeholder="Tokyo">
+    <span class="ac grow"><input class="c-name" value="${esc(name)}" placeholder="Search a city…" autocomplete="off"></span>
     <input class="c-nights" type="number" min="1" max="60" value="${nights}"> nights
     <button class="x" type="button" title="Remove">✕</button>`;
   div.querySelector('.x').onclick = () => {
     if ($('#wCities').children.length > 1) div.remove();
   };
+  const input = div.querySelector('.c-name');
+  attachSearch(input, {
+    find: searchCity,
+    onPick: h => {
+      input.value = h.name;
+      input.dataset.lat = h.lat;             // carried onto the days we generate
+      input.dataset.lng = h.lng;
+    },
+  });
   return div;
 }
 
@@ -682,7 +695,14 @@ function openWizard() {
 
 async function buildTrip() {
   const cities = [...$('#wCities').children]
-    .map(r => ({ name: r.querySelector('.c-name').value.trim(), nights: +r.querySelector('.c-nights').value || 1 }))
+    .map(r => {
+      const el = r.querySelector('.c-name');
+      return {
+        name: el.value.trim(),
+        nights: +r.querySelector('.c-nights').value || 1,
+        pt: el.dataset.lat ? { lat: +el.dataset.lat, lng: +el.dataset.lng } : null,
+      };
+    })
     .filter(c => c.name);
   if (!cities.length) { toast('Add at least one city.'); wizShow(1); return; }
 
@@ -705,6 +725,7 @@ async function buildTrip() {
       const d = blankDay();
       d.date = isoDate(t);
       d.city = c.name;
+      if (c.pt) d.cityPt = c.pt;
       days.push(d);
       t.setDate(t.getDate() + 1);
     }
@@ -762,9 +783,23 @@ $('#ddDate').onchange = e => {
   save(); render(); recalc();
 };
 
+attachSearch($('#ddCity'), {
+  find: searchCity,
+  onPick: h => {
+    const d = day();
+    d.city = h.name;
+    d.cityPt = { lat: h.lat, lng: h.lng };   // saves geocoding it later for search bias
+    $('#ddCity').value = h.name;
+    save(); render();
+  },
+});
+
+// Typing something the list does not have is fine - it is just a label.
 $('#ddCity').onchange = e => {
-  day().city = e.target.value.trim();
-  delete day().cityPt;          // the cached geocode belonged to the old city
+  const v = e.target.value.trim();
+  if (v === (day().city || '')) return;      // unchanged, e.g. straight after a pick
+  day().city = v;
+  delete day().cityPt;                       // the cached point belonged to the old city
   save(); render();
 };
 
