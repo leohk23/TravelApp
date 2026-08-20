@@ -185,14 +185,25 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
   const list = document.createElement('ul');
   list.className = 'ac-list';
   list.hidden = true;
-  // A modal <dialog> renders in the top layer, above anything z-index can reach,
-  // so a dropdown parented to <body> would be hidden behind it. Fixed position
-  // then escapes the dialog's own scrolling without being clipped.
-  (input.closest('dialog') || document.body).append(list);
+  list._owner = input;
 
   let timer, abort, hits = [], cursor = -1;
 
   const place = () => {
+    // A modal <dialog> paints in the top layer, which z-index cannot reach, so a
+    // dropdown under <body> ends up behind the dialog and its backdrop blur. It
+    // has to be a child of that dialog. Resolved here rather than at attach time
+    // because rows are built detached and inserted afterwards, when closest()
+    // would still return null.
+    const host = input.closest('dialog') || document.body;
+    if (list.parentElement !== host) {
+      // Re-rendered rows leave their dropdowns behind; drop the orphans.
+      for (const el of host.querySelectorAll(':scope > .ac-list')) {
+        if (el !== list && el._owner && !el._owner.isConnected) el.remove();
+      }
+      host.append(list);
+    }
+
     const r = input.getBoundingClientRect();
     list.style.left = `${r.left}px`;
     list.style.top = `${r.bottom + 4}px`;
@@ -211,8 +222,9 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
       li.onmousedown = e => { e.preventDefault(); pick(i); };
       return li;
     }));
+    // Position and re-parent before revealing, so it never paints at a stale spot.
+    if (hits.length) { place(); addEventListener('scroll', hide, true); }
     list.hidden = !hits.length;
-    if (!list.hidden) { place(); addEventListener('scroll', hide, true); }
   };
   const pick = i => {
     const h = hits[i];
