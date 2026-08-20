@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, fmtTime, fmtDur } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -74,6 +74,15 @@ assert.deepEqual(
   shiftDates(["2026-04-14"], "2026-04-14"), ["2026-04-14"], "no-op when unchanged");
 assert.deepEqual(shiftDates(["", ""], "2026-04-14"), ["", ""], "nothing to anchor on");
 assert.deepEqual(shiftDates(["2026-04-14"], ""), ["2026-04-14"], "no target date");
+
+// --- laying a range across consecutive days ---
+assert.deepEqual(datesFrom("2026-02-26", 4),
+  ["2026-02-26", "2026-02-27", "2026-02-28", "2026-03-01"], "rolls over a short month");
+assert.deepEqual(datesFrom("2024-02-28", 3),
+  ["2024-02-28", "2024-02-29", "2024-03-01"], "keeps the leap day");
+assert.deepEqual(datesFrom("2026-12-31", 2), ["2026-12-31", "2027-01-01"], "crosses new year");
+assert.equal(datesFrom("2026-04-14", 1).length, 1);
+assert.deepEqual(datesFrom("2026-04-14", 0), [], "empty range");
 
 assert.equal(fmtTime(1500), '01:00 +1');
 assert.equal(fmtDur(5400), '1h 30');

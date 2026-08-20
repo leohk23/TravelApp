@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, fmtTime, fmtDur, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, fmtTime, fmtDur, pad } from './logic.js';
 import { search, searchCity, geocode, route, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -773,16 +773,206 @@ $('#wizard').addEventListener('keydown', e => {
 /* ---------- wiring ---------- */
 $('#tripName').oninput = e => { state.name = e.target.value; save(); };
 
+/* ---------- range calendar: drag across the days you are travelling ---------- */
+let calMonth = new Date();
+let calAnchor = null;        // first tap of a two-tap selection
+let calPreview = null;       // [startISO, endISO] while dragging
+const calCells = new Map();  // iso -> button
+
+const dayMs = 86400000;
+const isoOf = d => isoDate(d);
+const parseISO = iso => new Date(`${iso}T00:00`);
+const orderPair = (a2, b2) => (a2 <= b2 ? [a2, b2] : [b2, a2]);
+
+/** Monday in most of the world, Sunday in some. Fall back to Monday. */
+function weekStart() {
+  try {
+    const info = new Intl.Locale(navigator.language).getWeekInfo?.();
+    if (info?.firstDay) return info.firstDay % 7;   // Intl uses 7 for Sunday, Date uses 0
+  } catch { /* older browser */ }
+  return 1;
+}
+
+/** The trip's current span, used to highlight the calendar. */
+function tripRange() {
+  const dates = state.days.map(d => d.date).filter(Boolean).sort();
+  return dates.length ? [dates[0], dates[dates.length - 1]] : null;
+}
+
+function renderCalendar() {
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  $('#calLabel').textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  const start = weekStart();
+  $('#calDow').replaceChildren(...Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(2024, 0, 7 + ((start + i) % 7));   // 2024-01-07 was a Sunday
+    const s = document.createElement('span');
+    s.textContent = d.toLocaleDateString(undefined, { weekday: 'narrow' });
+    return s;
+  }));
+
+  const first = new Date(y, m, 1);
+  const lead = (first.getDay() - start + 7) % 7;
+  const cursor = new Date(y, m, 1 - lead);
+  const today = isoOf(new Date());
+
+  calCells.clear();
+  const cells = Array.from({ length: 42 }, () => {
+    const iso = isoOf(cursor);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.d = iso;
+    b.textContent = cursor.getDate();
+    if (cursor.getMonth() !== m) b.classList.add('out');
+    if (iso === today) b.classList.add('today');
+    calCells.set(iso, b);
+    cursor.setDate(cursor.getDate() + 1);
+    return b;
+  });
+  $('#calGrid').replaceChildren(...cells);
+  paintRange();
+}
+
+function paintRange() {
+  const r = calPreview || tripRange();
+  const [s, e] = r || [];
+  for (const [iso, el] of calCells) {
+    const inRange = r && iso >= s && iso <= e;
+    el.classList.toggle('in', !!inRange);
+    el.classList.toggle('s', iso === s);
+    el.classList.toggle('e', iso === e);
+  }
+  const label = $('#calRange');
+  if (!r) { label.textContent = ''; return; }
+  const n = Math.round((parseISO(e) - parseISO(s)) / dayMs) + 1;
+  label.textContent = `${n} day${n > 1 ? 's' : ''}`;
+}
+
+/* Pointer events cover mouse and touch in one path. The grid keeps the capture,
+   and elementFromPoint finds the cell under the finger, because touch pointer
+   events keep targeting the element the gesture started on. */
+{
+  const grid = $('#calGrid');
+  let dragFrom = null, moved = false;
+  const cellAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('[data-d]');
+
+  grid.addEventListener('pointerdown', e => {
+    const cell = e.target.closest('[data-d]');
+    if (!cell) return;
+    e.preventDefault();
+    grid.setPointerCapture(e.pointerId);
+    dragFrom = cell.dataset.d;
+    moved = false;
+    calPreview = [dragFrom, dragFrom];
+    paintRange();
+  });
+
+  grid.addEventListener('pointermove', e => {
+    if (!dragFrom) return;
+    const cell = cellAt(e.clientX, e.clientY);
+    if (!cell) return;
+    const next = orderPair(dragFrom, cell.dataset.d);
+    if (calPreview && next[0] === calPreview[0] && next[1] === calPreview[1]) return;
+    moved = true;
+    calPreview = next;
+    paintRange();
+  });
+
+  grid.addEventListener('pointerup', async e => {
+    if (!dragFrom) return;
+    const from = dragFrom;
+    dragFrom = null;
+    try { grid.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
+    const to = cellAt(e.clientX, e.clientY)?.dataset.d ?? from;
+
+    if (!moved && to === from) {          // a tap, not a drag
+      if (calAnchor) {
+        const range = orderPair(calAnchor, to);
+        calAnchor = null;
+        await applyRange(...range);
+      } else {
+        calAnchor = to;                   // wait for the closing tap
+        calPreview = [to, to];
+        paintRange();
+      }
+      return;
+    }
+    calAnchor = null;
+    await applyRange(...orderPair(from, to));
+  });
+
+  grid.addEventListener('pointercancel', () => {
+    dragFrom = null; calPreview = null; paintRange();
+  });
+}
+
+$('#calPrev').onclick = () => { calMonth.setMonth(calMonth.getMonth() - 1); renderCalendar(); };
+$('#calNext').onclick = () => { calMonth.setMonth(calMonth.getMonth() + 1); renderCalendar(); };
+
+/**
+ * Lays the trip across [startISO, endISO].
+ *
+ * Same number of days as now: a pure shift, so any deliberate gaps survive.
+ * Different: days are re-dated consecutively and added or removed at the end.
+ */
+async function applyRange(startISO, endISO) {
+  const n = Math.round((parseISO(endISO) - parseISO(startISO)) / dayMs) + 1;
+
+  if (n < state.days.length) {
+    const losing = state.days.slice(n).filter(d => d.items.length).length;
+    if (losing) {
+      const ok = await ask({
+        title: `Drop ${state.days.length - n} day${state.days.length - n > 1 ? 's' : ''}?`,
+        body: `${losing} of them still ${losing > 1 ? 'have stops' : 'has stops'} planned. Bookings stay in the Itinerary.`,
+        confirm: 'Drop them', danger: true,
+      });
+      if (!ok) { calPreview = null; paintRange(); return; }
+    }
+  }
+
+  // A shift needs an existing date to anchor on; a fresh trip has none, so it
+  // has to take the consecutive path even when the count happens to match.
+  const anchored = state.days.some(d => d.date);
+  if (anchored && n === state.days.length) {
+    shiftDates(state.days.map(d => d.date), startISO)
+      .forEach((date, i) => { state.days[i].date = date; });
+  } else {
+    const dates = datesFrom(startISO, n);
+    for (let i = 0; i < n; i++) {
+      if (!state.days[i]) {
+        const d = blankDay();
+        const prev = state.days[i - 1];       // a new day inherits the city before it
+        d.city = prev?.city || '';
+        if (prev?.cityPt) d.cityPt = { ...prev.cityPt };
+        state.days.push(d);
+      }
+      state.days[i].date = dates[i];
+    }
+    state.days.length = n;
+    state.dayIdx = Math.min(state.dayIdx, n - 1);
+  }
+
+  calPreview = null;
+  save();
+  render();
+  renderDayTable();
+  paintRange();
+  recalc();
+}
+
 /* ---------- trip days: edit every date and city in one table ---------- */
 function openDayDlg() {
+  const first = state.days.find(d => d.date);
+  calMonth = first ? new Date(`${first.date}T00:00`) : new Date();
+  calMonth.setDate(1);
+  calAnchor = null;
+  calPreview = null;
+  renderCalendar();
   renderDayTable();
   if (!$('#dayDlg').open) $('#dayDlg').showModal();   // showModal throws if already open
 }
 
 function renderDayTable() {
-  const first = state.days.find(d => d.date);
-  $('#ddStart').value = first ? first.date : '';
-
   $('#ddRows').replaceChildren(...state.days.map((d, i) => {
     const tr = document.createElement('tr');
     if (i === state.dayIdx) tr.className = 'on';
@@ -853,14 +1043,7 @@ function renderDayTable() {
 
 $('#dayEdit').onclick = openDayDlg;
 $('#ddDone').onclick = () => $('#dayDlg').close();
-$('#ddAdd').onclick = () => { addDayAfter(state.days.length - 1); renderDayTable(); };
-
-/** Shifts the whole trip, so a trip that slips by a week is one edit. */
-$('#ddStart').onchange = e => {
-  const moved = shiftDates(state.days.map(d => d.date), e.target.value);
-  moved.forEach((date, i) => { state.days[i].date = date; });
-  save(); render(); renderDayTable(); recalc();
-};
+$('#ddAdd').onclick = () => { addDayAfter(state.days.length - 1); renderDayTable(); renderCalendar(); };
 $('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
 const addBooking = (kind, time) => {
   const d = day().date;

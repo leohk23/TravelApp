@@ -189,11 +189,18 @@
     <p>Dates drive transit timetables and file your bookings onto the right day.</p>
   </div>
 
-  <div class="wiz-body">
-    <label>Trip starts on
-      <input type="date" id="ddStart">
-      <small>Moves every day, keeping the gaps between them.</small>
-    </label>
+  <div class="cal">
+    <div class="cal-head">
+      <button id="calPrev" class="icon" type="button" aria-label="Previous month">‹</button>
+      <strong id="calLabel"></strong>
+      <button id="calNext" class="icon" type="button" aria-label="Next month">›</button>
+      <span class="spacer"></span>
+      <small id="calRange"></small>
+    </div>
+    <div class="cal-dow" id="calDow"></div>
+    <div class="cal-grid" id="calGrid"></div>
+    <small class="cal-hint">Drag across the days you are travelling, or tap the first and last.
+      Days are added or removed to match.</small>
   </div>
 
   <div class="daytable-wrap">

@@ -146,3 +146,14 @@ export function shiftDates(dates, newStart) {
     return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
   });
 }
+
+/** `n` consecutive ISO dates starting at `startISO`. Whole calendar days, so
+ *  month ends, leap days and daylight-saving changes all come out right. */
+export function datesFrom(startISO, n) {
+  const t = new Date(`${startISO}T00:00`);
+  return Array.from({ length: n }, () => {
+    const s = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+    t.setDate(t.getDate() + 1);
+    return s;
+  });
+}

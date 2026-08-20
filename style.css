@@ -489,3 +489,39 @@ dialog[open] {
   .daytable .r-date { min-width: 7.5rem; font-size: 13px; }
   .daytable-wrap { padding: 0 12px; }
 }
+
+/* ---------- range calendar ---------- */
+.cal { padding: 4px 22px 12px; flex: 0 0 auto; }
+.cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cal-head strong { font-size: 14px; min-width: 11ch; text-align: center; }
+.cal-head small { color: var(--dim); font-size: 12px; }
+.cal-dow, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-dow span {
+  text-align: center; font-size: 11px; font-weight: 700; color: var(--dim);
+  padding-bottom: 4px; text-transform: uppercase;
+}
+.cal-grid button {
+  min-height: 34px; padding: 0; border: 0; border-radius: 0; background: transparent;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+  /* the grid owns the gesture; without this the browser scrolls instead */
+  touch-action: none; user-select: none;
+}
+.cal-grid button:hover:not(:disabled) { background: var(--sunk); }
+.cal-grid button.out { color: var(--dim); opacity: .45; }
+.cal-grid button.today { font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.cal-grid button.in { background: var(--accent-soft); color: var(--fg); }
+.cal-grid button.in:hover { background: var(--accent-soft); filter: brightness(.96); }
+.cal-grid button.s, .cal-grid button.e {
+  background: var(--accent); color: #fff; font-weight: 700;
+}
+.cal-grid button.s { border-radius: 8px 0 0 8px; }
+.cal-grid button.e { border-radius: 0 8px 8px 0; }
+.cal-grid button.s.e { border-radius: 8px; }
+.cal-hint { display: block; margin-top: 10px; color: var(--dim); font-size: 12px; line-height: 1.5; }
+
+/* ---------- booking cards: the remove button holds the corner ---------- */
+.booking > .head { padding-right: 34px; }
+.booking > .head > .x {
+  position: absolute; top: 10px; right: 10px; z-index: 1;
+  min-height: 28px; width: 28px; padding: 0;
+}
