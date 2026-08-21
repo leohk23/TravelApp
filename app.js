@@ -716,16 +716,16 @@ function stayLabel(b) {
 }
 
 /**
- * A flight's clock times are local to each end, exactly as the airline prints
- * them, so each one is tagged with the airport it belongs to. Untagged, the
- * pair reads as one clock and an 08:20 to 13:05 hop looks like five hours.
+ * A flight's clock times are local to each end, as the airline prints them.
+ * The airports are named on the row directly above and the fields you type
+ * them into say which is which, so repeating the codes here was three copies
+ * of the same fact. What the card adds instead is the time in the air, which
+ * is the number you cannot get by subtracting the two.
  */
 function journeyLabel(b) {
   if (!b.start) return 'Set depart and arrive';
-  const tag = b.kind === 'Flight';
-  const end = (dt, code) => fmtDayLabel(dt) + (timeOf(dt) ? ` ${timeOf(dt)}` : '')
-    + (tag && code ? ` ${code}` : '');
-  return `${end(b.start, b.from)}  →  ${b.end ? end(b.end, b.to) : '?'}`;
+  const end = dt => fmtDayLabel(dt) + (timeOf(dt) ? ` ${timeOf(dt)}` : '');
+  return `${end(b.start)}  →  ${b.end ? end(b.end) : '?'}`;
 }
 
 function bookingCard(b, { showDate = false } = {}) {
