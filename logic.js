@@ -148,6 +148,15 @@ export function clockOf(hhmm) {
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
 }
 
+/**
+ * When a pinned stop happens, in minutes since midnight.
+ *
+ * A booking gives the whole instant, "2026-09-12T08:20". A time you set
+ * yourself is just "14:00", because it belongs to whichever day the stop ends
+ * up on rather than to a date of its own.
+ */
+export const pinMinutes = it => clockMinutes(it?.at) ?? clockOf(it?.at);
+
 /** "2026-09-12T08:20" -> 500 minutes since midnight. null when there is no time. */
 export function clockMinutes(dt) {
   const s = String(dt || '');
@@ -161,10 +170,11 @@ export function clockMinutes(dt) {
  * only take up time. legs[originIndex] = { seconds } for the hop leaving that
  * place. Returns interleaved rows with times in minutes-since-midnight.
  *
- * An item carrying `at` is a stop you hold a ticket for, and it happens when
- * the ticket says rather than wherever the running total has drifted to. Its
- * clock is the one printed on the ticket, so a departure airport reads in its
- * own timezone and the row after it reads in the destination's.
+ * An item carrying `at` happens at that time rather than wherever the running
+ * total has drifted to. It comes from a ticket — a flight, with the full
+ * instant and its own timezone, so a departure airport reads in its own clock
+ * and the row after it in the destination's — or from you, as a plain clock
+ * time on a stop with an opening you have to make.
  */
 export function scheduleDay(items, legs = [], startTime = "09:00") {
   let t = clockOf(startTime) ?? 9 * 60;
@@ -178,7 +188,7 @@ export function scheduleDay(items, legs = [], startTime = "09:00") {
       out.push({ type: "leg", from: lastPlace, to: i, min, leg });
       if (min != null) t += min;
     }
-    const pinned = clockMinutes(it.at);
+    const pinned = pinMinutes(it);
     if (pinned != null) t = pinned;
     const stay = it.stayMin ?? 60;
     out.push({ type: "item", i, arrive: t, depart: t + stay, place: isPlace(it), pinned: pinned != null });

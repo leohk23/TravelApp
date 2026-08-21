@@ -376,8 +376,9 @@
           "address": "Hakataekichuogai, Hakata-ku, Fukuoka",
           "lat": 33.5898,
           "lng": 130.4207,
-          "stayMin": 60,
-          "localName": "博多駅"
+          "stayMin": 210,
+          "localName": "博多駅",
+          "notes": "Presents and a bento for the flight."
         },
         {
           "name": "FUK",

@@ -96,7 +96,8 @@ One object in `localStorage['travelapp']`, written by `save()`:
   days: [{
     date, city, timeZone, start, end,        // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00", "22:00"
     cityPt,                                  // cached geocode of city, for search bias
-    items: [{ name, localName?, address?, hours?, lat?, lng?, stayMin, at?, atTz?, hotelId?, flightId?, role? }],
+    items: [{ name, localName?, address?, localAddress?, hours?, lat?, lng?, stayMin,
+              at?, atTz?, hotelId?, flightId?, role? }],   // at = a ticket instant, or a clock time you set
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id

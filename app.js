@@ -1,11 +1,11 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, openHours, decodePolyline, bookingCost, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v55';
+const BUILD = 'v56';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -162,10 +162,16 @@ async function dayTimeZone(d) {
  * The ticket prints a local time at each end of a flight, so a departure
  * airport is read in its own zone and everything else in the day's.
  */
-function pinnedInstant(it, dayTz) {
+function pinnedInstant(it, dayTz, date) {
   if (!it.at) return null;
-  try { return zonedDateTime(it.at.slice(0, 10), it.at.slice(11, 16), it.atTz || dayTz); }
-  catch { return null; }
+  const whole = it.at.includes('T');
+  try {
+    return zonedDateTime(
+      whole ? it.at.slice(0, 10) : date,
+      whole ? it.at.slice(11, 16) : it.at,
+      (whole && it.atTz) || dayTz,
+    );
+  } catch { return null; }
 }
 
 /**
@@ -218,7 +224,7 @@ async function recalc() {
       // Everything between the two places still costs time, notes included, and
       // a stop with a ticket resets the clock to what the ticket says.
       for (let k = from; k < to; k++) {
-        t = pinnedInstant(d.items[k], tz) || t;
+        t = pinnedInstant(d.items[k], tz, d.date) || t;
         t = new Date(t.getTime() + (d.items[k].stayMin ?? 60) * 60000);
       }
       const hop = flightHop(d.items[from], d.items[to]);
@@ -1405,7 +1411,7 @@ function itemRow(d, row, ord, cutoff = null) {
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
     <div class="marker">${row.place ? stopMark(it, ord.get(row.i)) : '•'}</div>
-    <div class="when">${fmtTime(row.arrive)}${
+    <div class="when${row.pinned ? ' fixed' : ''}">${fmtTime(row.arrive)}${
       it.atTz && it.atTz !== d.timeZone ? `<small class="tz">${esc(zoneLabel(it.atTz))} time</small>`
       : row.depart !== row.arrive ? `<small>${fmtTime(row.depart)}</small>` : ''}</div>
     <button class="what-btn" type="button">
@@ -1414,7 +1420,7 @@ function itemRow(d, row, ord, cutoff = null) {
       ${sub ? `<small>${it.notes ? '✎ ' : ''}${esc(sub)}</small>` : ''}
     </button>
     ${warn || fmtStay(it.stayMin ?? 60) ? `<div class="stop-tags">
-      ${warn ? `<span class="chip warn" title="${esc(warn.title)}">${esc(warn.text)}</span>` : ''}
+      ${warn ? `<span class="chip ${warn.danger ? 'danger' : 'warn'}" title="${esc(warn.title)}">${esc(warn.text)}</span>` : ''}
       ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}
     </div>` : ''}`;
 
@@ -1575,7 +1581,7 @@ function stopWarning(d, it, row, cutoff) {
   // departure - you left home that morning - and nothing after it is late.
   if (cutoff && row.i < cutoff.before && row.depart > cutoff.minutes) {
     return {
-      text: 'too close to the flight',
+      text: 'too close to the flight', danger: true,
       title: `Leave for the airport by ${fmtTime(cutoff.minutes)} to be there two hours before departure.`,
     };
   }
@@ -1617,6 +1623,11 @@ function openActivity(i) {
   $('#actName').removeAttribute('aria-invalid');
   $('#actError').textContent = '';
   $('#actError').hidden = true;
+  // A stop derived from a booking is timed by the booking, and hand-editing it
+  // only lasts until the next rebuild. So the field is not offered there.
+  const derived = Boolean(it.flightId || it.hotelId);
+  $('#actAtWrap').hidden = derived;
+  $('#actAt').value = derived ? '' : (it.at || '');
   $('#actMin').value = it.stayMin ?? 60;
   $('#actNotes').value = it.notes || '';
   showActDetails();
@@ -1649,6 +1660,12 @@ function commitActivity() {
     else delete it.localAddress;
     if (actPicked.hours) it.hours = actPicked.hours;
     else delete it.hours;
+  }
+  // A time you set holds the stop there; blank lets it follow the one before.
+  if (!(it.flightId || it.hotelId)) {
+    const at = $('#actAt').value;
+    if (at && at !== it.at) { it.at = at; timingChanged = true; }
+    else if (!at && it.at) { delete it.at; timingChanged = true; }
   }
   const notes = $('#actNotes').value.trim();
   if (notes) it.notes = notes; else delete it.notes;

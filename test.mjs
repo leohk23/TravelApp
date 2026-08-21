@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours, decodePolyline, bookingCost } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -522,6 +522,27 @@ assert.equal(flightSeconds("2026-09-12T08:20", "2026-09-12T13:05", HK, ""), null
 assert.equal(flightSeconds("2026-09-12", "2026-09-12T13:05", HK, JP), null, "no time, no duration");
 assert.equal(flightSeconds("2026-09-12T13:05", "2026-09-12T08:20", JP, JP), null,
   "landing before takeoff is not a duration");
+
+// --- a stop can be pinned by a ticket or by you ---
+assert.equal(pinMinutes({ at: "2026-09-12T08:20" }), 500, "a whole instant, off a booking");
+assert.equal(pinMinutes({ at: "14:00" }), 840, "a clock time, set by hand");
+assert.equal(pinMinutes({ at: "9:05" }), 545);
+assert.equal(pinMinutes({}), null, "nothing pinned, so it follows the stop before");
+assert.equal(pinMinutes(null), null);
+assert.equal(pinMinutes({ at: "lunchtime" }), null);
+
+// A time you set holds the stop there exactly as a ticket does.
+const booked = scheduleDay([
+  { name: "Hotel", lat: 1, lng: 1, stayMin: 0 },
+  { name: "Lunch", lat: 2, lng: 2, stayMin: 60, at: "12:30" },
+  { name: "Museum", lat: 3, lng: 3, stayMin: 90 },
+], { 0: { seconds: 600 }, 1: { seconds: 600 } }, "09:00")
+  .filter(r => r.type === "item");
+assert.equal(booked[0].arrive, 9 * 60, "the day still starts when it starts");
+assert.equal(booked[1].arrive, 12 * 60 + 30, "lunch is at half twelve because you said so");
+assert.equal(booked[1].pinned, true);
+assert.equal(booked[2].arrive, 13 * 60 + 40, "and everything after it follows on again");
+assert.equal(booked[2].pinned, false);
 
 // --- a stop you hold a ticket for happens when the ticket says ---
 const flightDay = scheduleDay([

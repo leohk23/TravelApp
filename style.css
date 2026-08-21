@@ -1065,3 +1065,12 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 
 /* The hotel as the signs write it, beside the name the booking uses. */
 .ov-local { color: var(--dim); margin-left: 8px; }
+
+/* A time you fixed yourself, rather than one the plan worked out. */
+.when.fixed { color: var(--accent); }
+
+/* Missing a plane is a different order of problem from finding a museum shut,
+   so it does not share the colour. */
+.chip.danger {
+  background: var(--bad); color: #fff; border-color: transparent; font-weight: 650;
+}
