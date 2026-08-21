@@ -163,6 +163,40 @@ export function scheduleDay(items, legs = [], startTime = "09:00") {
 const r2 = v => Math.round(v * 100) / 100;
 
 /**
+ * Reorder a day's stops to cut travel, moving only what is yours to move.
+ *
+ * A stop derived from a booking sits where the clock puts it: you land at the
+ * airport when the plane lands and check in when you check in. Shuffling those
+ * put the arrival airport after the afternoon sights until the next rebuild
+ * quietly undid it. They now hold their positions, as free-form notes already
+ * did, and the journey is optimised for the stops in between.
+ *
+ * The last fixed place before the first movable one anchors the route, so the
+ * order is the best way round *starting from your hotel* rather than the best
+ * loop in the abstract. `dist(a, b)` supplies the cost; no free transit matrix
+ * exists, so callers pass straight-line distance.
+ *
+ * Returns a new items array, or null when there is nothing worth reordering.
+ */
+export function optimizeDay(items, dist) {
+  const movable = it => isPlace(it) && !it.flightId && !it.hotelId;
+  const slots = items.map((it, i) => (movable(it) ? i : -1)).filter(i => i >= 0);
+  if (!slots.length) return null;
+
+  const anchorAt = items.slice(0, slots[0]).reduce((k, it, i) => (isPlace(it) ? i : k), -1);
+  const anchor = anchorAt >= 0 ? items[anchorAt] : null;
+  const places = anchor ? [anchor, ...slots.map(i => items[i])] : slots.map(i => items[i]);
+  if (places.length < 4) return null;
+
+  const M = places.map(a => places.map(b => dist(a, b)));
+  const order = optimizeOrder(M, true);
+  const offset = anchor ? 1 : 0;
+  const next = [...items];
+  slots.forEach((slot, k) => { next[slot] = places[order[k + offset]]; });
+  return next;
+}
+
+/**
  * Split expenses evenly among each expense's sharedBy list, then settle up with
  * the fewest sensible transfers (greedy biggest-debtor -> biggest-creditor).
  */

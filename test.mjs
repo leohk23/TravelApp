@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -306,6 +306,35 @@ for (const c of FARES.cities) {
   }
 }
 
+// --- optimising a day moves only the stops you typed in ---
+// Stops on a line at lat 0..9, so straight-line cost is just the gap.
+const gap = (a, b) => Math.abs(a.lat - b.lat);
+const dayItems = [
+  { name: "Hotel", lat: 0, lng: 0, hotelId: "h" },
+  { name: "A", lat: 3, lng: 0 },
+  { name: "buy a rail pass" },
+  { name: "B", lat: 1, lng: 0 },
+  { name: "C", lat: 2, lng: 0 },
+  { name: "FUK", lat: 9, lng: 0, flightId: "f", role: "depart" },
+];
+const better = optimizeDay(dayItems, gap);
+assert.deepEqual(better.map(x => x.name), ["Hotel", "B", "buy a rail pass", "C", "A", "FUK"],
+  "the sights reorder around the hotel; the hotel, the note and the airport hold their places");
+assert.equal(better[0].hotelId, "h", "a stop from a booking is never shuffled away from its slot");
+assert.equal(better[5].flightId, "f", "least of all the flight you have to catch");
+assert.notEqual(better, dayItems, "returns a new list rather than editing in place");
+assert.deepEqual(dayItems.map(x => x.name), ["Hotel", "A", "buy a rail pass", "B", "C", "FUK"],
+  "and leaves the original alone");
+
+// The anchor matters: without the hotel in the matrix the best order is the
+// best loop, not the best way round starting from where you are.
+assert.equal(optimizeDay(dayItems.slice(1), gap), null,
+  "drop the hotel and only three stops can move, under the four worth ordering");
+
+assert.equal(optimizeDay([{ name: "Hotel", lat: 0, lng: 0, hotelId: "h" },
+  { name: "A", lat: 1, lng: 0 }], gap), null, "too short to be worth reordering");
+assert.equal(optimizeDay([{ name: "a note" }, { name: "another" }], gap), null,
+  "nothing with coordinates, nothing to order");
 // --- a point the walking network cannot reach falls back to a station ---
 // Real stops from the router, around Fukuoka Airport's published coordinate.
 const FUK_PT = { lat: 33.5859, lng: 130.4506 };

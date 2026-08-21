@@ -90,6 +90,10 @@ Deliberately not built yet. Each line says what would trigger building it.
 - **The only copy of your data is one browser localStorage.** Export/Import is
   parked (above), so clearing site data or losing the device loses every
   confirmation number. Deliberate for now, deliberately recorded here.
+- **Optimise does nothing, silently, on a short day.** Under four places
+  there is no ordering worth computing, so `optimizeDay()` returns null and
+  the button appears broken. It needs to say why, or disable itself, or both.
+  *Build when someone other than the author presses it.*
 
 - Transit coverage depends on community GTFS feeds. Verified in Hong Kong,
   Tokyo, London and Berlin. Elsewhere you may get "no public transport found",
@@ -98,9 +102,10 @@ Deliberately not built yet. Each line says what would trigger building it.
   will be wrong. Set the date on the day tab.
 - Cities are only labels on days. Nothing checks that your Tokyo hotel sits on a
   Tokyo day.
-- Flight durations are not shown. Depart and arrive are local times, so
-  subtracting them across time zones would display a lie. Hotels show nights,
-  which is timezone-safe.
+- Airport transit coverage is uneven. A journey from an airport falls back to
+  the nearest rail stop when the published coordinate is unwalkable, and gives
+  up rather than guess when the feed has no rail stop near it — Hong Kong has
+  no Airport Express in the index, so HKG still answers "no route".
 - Preview and production share `localStorage` (same origin). A broken preview
   build can scribble on your real trip data.
 - No undo. Deleting a day asks for confirmation; deleting a stop does not.

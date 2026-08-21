@@ -196,8 +196,14 @@ Nominatim and Transitous are volunteer-run. Debounce, cache, throttle. Both
 return **403 to Node's default User-Agent**, so `providers.js` cannot be
 exercised from a Node script — verify it in a browser.
 
-Because no free transit matrix exists, `optimize()` builds its cost matrix from
-`haversine()` distance and only then fetches real legs for the chosen order.
+Because no free transit matrix exists, `optimizeDay()` builds its cost matrix
+from `haversine()` distance and only then fetches real legs for the chosen
+order. It reorders **only the stops you typed in**: a stop derived from a
+booking sits where the clock puts it, and shuffling those moved the arrival
+airport behind the afternoon sights until the next `ensureLinkedStops()` run
+quietly undid it. The last fixed place before the first movable one anchors
+the route, so the answer is the best way round starting from your hotel rather
+than the best loop in the abstract.
 
 Attribution for OSM data is a licence condition, not decoration. It lives in the
 Leaflet attribution control and the credit line under the day plan.

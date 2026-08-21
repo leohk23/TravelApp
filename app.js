@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -181,12 +181,9 @@ async function recalc() {
  */
 async function optimize() {
   const d = day();
-  const slots = d.items.map((it, i) => (isPlace(it) ? i : -1)).filter(i => i >= 0);
-  if (slots.length < 4) return;
-  const places = slots.map(i => d.items[i]);
-  const M = places.map(a => places.map(b => haversine(a, b)));
-  // Free-form items keep their positions; only the places shuffle between slots.
-  optimizeOrder(M, true).forEach((src, k) => { d.items[slots[k]] = places[src]; });
+  const next = optimizeDay(d.items, haversine);
+  if (!next) return;
+  d.items = next;
   save();
   await recalc();
 }
