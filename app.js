@@ -1,4 +1,4 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -949,7 +949,7 @@ function renderItinerary() {
   const all = state.itinerary.length;
   $('#bookTotal').innerHTML = all
     ? `<span class="count">${shown.length}${shown.length === all ? '' : ` of ${all}`} booking${all === 1 ? '' : 's'}</span>`
-      + `<span class="money">${esc(state.currency)} ${total.toFixed(2)}</span>`
+      + `<span class="money">${esc(fmtMoney(total, state.currency))}</span>`
     : '';
 }
 
@@ -1339,7 +1339,7 @@ function renderMoney() {
     li.className = 'expense';
     li.innerHTML = `
       <div class="what"><b>${esc(e.desc)}</b><small>paid by ${esc(e.payer)}</small>${e.src ? '<span class="chip src">from Itinerary</span>' : ''}</div>
-      <div class="amt">${esc(state.currency)} ${(+e.amount).toFixed(2)}</div>
+      <div class="amt">${esc(fmtMoney(e.amount, state.currency))}</div>
       <div class="chips"></div>
       <button class="x" title="Remove">✕</button>`;
     const chips = li.querySelector('.chips');
@@ -1362,11 +1362,11 @@ function renderMoney() {
   const total = state.expenses.reduce((s, e) => s + (+e.amount || 0), 0);
   const { balances, transfers } = settleUp(state.expenses, state.members);
   $('#settle').innerHTML = `
-    <p class="total">Total ${esc(state.currency)} ${total.toFixed(2)}</p>
+    <p class="total">Total ${esc(fmtMoney(total, state.currency))}</p>
     <ul class="bal">${state.members.map(m =>
-      `<li><span>${esc(m)}</span><b class="${balances[m] < 0 ? 'neg' : 'pos'}">${balances[m] > 0 ? '+' : ''}${balances[m].toFixed(2)}</b></li>`).join('')}</ul>
+      `<li><span>${esc(m)}</span><b class="${balances[m] < 0 ? 'neg' : 'pos'}">${balances[m] > 0 ? '+' : ''}${esc(fmtMoney(balances[m], state.currency))}</b></li>`).join('')}</ul>
     <ul class="tx">${transfers.length
-      ? transfers.map(t => `<li><b>${esc(t.from)}</b> pays <b>${esc(t.to)}</b> ${esc(state.currency)} ${t.amount.toFixed(2)}</li>`).join('')
+      ? transfers.map(t => `<li><b>${esc(t.from)}</b> pays <b>${esc(t.to)}</b> ${esc(fmtMoney(t.amount, state.currency))}</li>`).join('')
       : '<li class="empty">All square.</li>'}</ul>`;
 }
 

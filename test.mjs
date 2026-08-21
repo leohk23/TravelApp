@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -305,6 +305,19 @@ for (const c of FARES.cities) {
     }
   }
 }
+
+// --- money on screen: a sign in front, grouped, no decimals ---
+// Exact symbols follow the reader's locale, so assert the shape, not the glyph.
+assert.match(fmtMoney(156000, "JPY"), /156,000/, "thousands are grouped");
+assert.match(fmtMoney(156000, "JPY"), /^[^0-9]+156,000$/, "the sign goes in front");
+assert.ok(!/[.,]\d\d$/.test(fmtMoney(1234.56, "GBP")), "no decimals on screen");
+assert.match(fmtMoney(1234.56, "GBP"), /1,235/, "rounded to the nearest, not cut off");
+assert.match(fmtMoney(-52000, "JPY"), /^[-(]/, "what you are owed still reads as a debt");
+assert.match(fmtMoney(1000, "NOTACODE"), /NOTACODE 1[.,]000/,
+  "a currency nobody has heard of still groups its digits");
+assert.match(fmtMoney(0, "JPY"), /0/, "nothing spent is still an amount");
+assert.match(fmtMoney(undefined, "JPY"), /0/, "a missing amount is zero, not NaN");
+assert.match(fmtMoney(500, ""), /500/, "no currency set, just the number");
 
 // --- which nights you actually sleep somewhere ---
 const stay = { start: "2026-09-12T15:00", end: "2026-09-16T11:00" };

@@ -57,6 +57,27 @@ export function flightSeconds(startISO, endISO, tzFrom, tzTo) {
   } catch { return null; }
 }
 
+/**
+ * An amount as a person writes it: the currency's own sign in front, thousands
+ * grouped, and no decimals. 156000 JPY reads as ¥156,000, not JPY 156000.00.
+ *
+ * Rounded for **display only**. What is stored is what was entered, and every
+ * input keeps its cents, so a 5.50 fare is still 5.50 when you go back to it.
+ *
+ * A trip may carry a currency nobody has heard of - the field is free text -
+ * so an unknown code falls back to grouped digits behind the code itself.
+ */
+export function fmtMoney(amount, currency) {
+  const n = Number(amount) || 0;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return `${currency || ''} ${Math.round(n).toLocaleString()}`.trim();
+  }
+}
+
 /** minutes-since-midnight -> "09:05" (with " +1" for next day) */
 export function fmtTime(m) {
   const h = Math.floor(m / 60), d = Math.floor(h / 24);
