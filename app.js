@@ -1,4 +1,4 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -421,8 +421,18 @@ async function ensureLinkedStops(d = day()) {
 
   const own = d.items.filter(it => !it.hotelId && !it.flightId);
   const sameSpot = (a, b) => isPlace(a) && isPlace(b) && a.lat === b.lat && a.lng === b.lng;
-  const kept = own.filter(it => ![...head, ...tail].some(x => sameSpot(x, it)));
-  const next = [...head, ...kept, ...tail];
+
+  // You sleep here tonight, so the day ends where it ends and the last leg is
+  // the one home. Not on the check-out date: that morning you leave for good.
+  // Nor when the day already finishes at the hotel, which would route a stop
+  // to itself.
+  const bed = sleepsOn(hotel, d.date) && hotelPoint
+    ? { ...hotelItem(hotel, hotelPoint), role: 'night' }
+    : null;
+  const kept = own.filter(it => ![...head, ...tail, bed].some(x => x && sameSpot(x, it)));
+  const body = [...head, ...kept, ...tail];
+  const night = bed && !sameSpot(body[body.length - 1] || {}, bed) ? [bed] : [];
+  const next = [...body, ...night];
 
   const key = list => JSON.stringify(list.map(it =>
     [it.name, it.address, it.lat, it.lng, it.stayMin, it.hotelId, it.flightId, it.role, it.at, it.atTz]));
@@ -580,9 +590,9 @@ function renderDays() {
   state.days.forEach((d, i) => {
     const b = document.createElement('button');
     b.className = 'tab' + (i === state.dayIdx ? ' on' : '');
-    b.innerHTML = `<span class="t-n">Day ${i + 1}</span>`
-      + (d.date ? `<span class="t-d">${esc(fmtDayLabel(d.date))}</span>` : '')
-      + (showCity && d.city ? `<span class="t-c">${esc(d.city)}</span>` : '');
+    // Just the number. Which date and city that is reads underneath, where
+    // there is room to spell it out instead of abbreviating it to fit a pill.
+    b.textContent = `Day ${i + 1}`;
     b.onclick = () => {
       state.dayIdx = i; save(); render();
       if (state.tab === 'local') prepareDayPlan(d);
@@ -595,6 +605,12 @@ function renderDays() {
   add.title = 'Add a day';
   add.onclick = () => addDayAfter(state.days.length - 1);
   tabs.append(add);
+
+  const d = day();
+  $('#dayWhen').innerHTML = d?.date
+    ? `<span class="dw-date">${esc(fmtDayFull(d.date))}</span>`
+      + (showCity && d.city ? `<span class="dw-city">${esc(d.city)}</span>` : '')
+    : '<span class="dw-none">No date set, so transit times cannot be looked up</span>';
 
   // With a long trip the selected tab can sit off-screen after a re-render.
   tabs.querySelector('.tab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -873,6 +889,12 @@ function onSomeDay(b) {
 
 const fmtDayLabel = dt => (dt
   ? new Date(`${dt.slice(0, 10)}T00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  : '');
+
+/** The long form, for the one place a date is not squeezed into a pill. */
+const fmtDayFull = dt => (dt
+  ? new Date(`${dt.slice(0, 10)}T00:00`).toLocaleDateString(undefined,
+    { weekday: 'long', day: 'numeric', month: 'long' })
   : '');
 
 const haystack = b => [b.kind, b.ref, b.from, b.to, b.conf, b.notes]

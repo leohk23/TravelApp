@@ -150,9 +150,17 @@ header {
 
 /* ---------- day strip ---------- */
 .daystrip {
-  display: flex; gap: 10px; align-items: center; flex: 0 0 auto;
+  flex: 0 0 auto;
   padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line);
 }
+.daystrip-row { display: flex; gap: 10px; align-items: center; }
+/* The date left the pills so they could stay short. It reads in full here,
+   where there is a whole line for it. */
+.daywhen { display: flex; gap: 10px; align-items: baseline; margin: 7px 2px 0; }
+.daywhen .dw-date { font-size: 14px; font-weight: 600; }
+.daywhen .dw-city { font-size: 13px; color: var(--dim); }
+.daywhen .dw-none { font-size: 13px; color: var(--warn); }
+.daywhen:empty { display: none; }
 .tabs {
   display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
   padding: 2px; margin: -2px; flex: 1; min-width: 0; scroll-padding-inline: 8px;
@@ -761,10 +769,7 @@ main > section { position: relative; }
   font-size: 11px; background: var(--sunk); color: var(--dim); opacity: 1;
 }
 /* day tabs: three facts, three treatments, no separators */
-.tab .t-n { font-weight: 600; }
-.tab .t-d { margin-left: 8px; opacity: .75; font-variant-numeric: tabular-nums; }
-.tab .t-c { margin-left: 8px; opacity: .75; }
-.tab.on .t-d, .tab.on .t-c { opacity: .85; }
+.tab { font-weight: 600; }
 
 /* ---------- headcount stepper ---------- */
 .counter { display: flex; align-items: center; gap: 8px; }

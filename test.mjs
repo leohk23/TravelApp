@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -305,6 +305,18 @@ for (const c of FARES.cities) {
     }
   }
 }
+
+// --- which nights you actually sleep somewhere ---
+const stay = { start: "2026-09-12T15:00", end: "2026-09-16T11:00" };
+assert.equal(sleepsOn(stay, "2026-09-12"), true, "the night you check in");
+assert.equal(sleepsOn(stay, "2026-09-15"), true, "the last night");
+assert.equal(sleepsOn(stay, "2026-09-16"), false,
+  "check-out morning you leave with your bags, so the day does not end in the room");
+assert.equal(sleepsOn(stay, "2026-09-11"), false, "before you arrive");
+assert.equal(sleepsOn({ start: "2026-09-12" }, "2026-09-12"), false,
+  "a stay with no check-out cannot say how many nights, so it claims none");
+assert.equal(sleepsOn(null, "2026-09-12"), false);
+assert.equal(sleepsOn(stay, ""), false);
 
 // --- optimising a day moves only the stops you typed in ---
 // Stops on a line at lat 0..9, so straight-line cost is just the gap.

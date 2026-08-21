@@ -379,6 +379,21 @@ export function strandedStop(point, stops, { strandedM = 400, reachM = 3000 } = 
   return rail ? rail.s : null;
 }
 
+/**
+ * Whether you sleep at this stay on that date.
+ *
+ * Check-in night through the last night, so the check-out date is **not**
+ * one of them: that morning you leave with your bags and the day ends at an
+ * airport, not back in the room. `staysOn` answers a different question - which
+ * days the booking touches - and includes it.
+ */
+export function sleepsOn(stay, date) {
+  if (!stay?.start || !date) return false;
+  const from = String(stay.start).slice(0, 10);
+  const to = String(stay.end || stay.start).slice(0, 10);
+  return from <= date && date < to;
+}
+
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;

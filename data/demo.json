@@ -143,6 +143,15 @@
           "lat": 33.593,
           "lng": 130.4055,
           "stayMin": 90
+        },
+        {
+          "name": "Hotel Nikko Fukuoka",
+          "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan",
+          "lat": 33.591,
+          "lng": 130.4184,
+          "stayMin": 0,
+          "hotelId": "demo-hotel",
+          "role": "night"
         }
       ]
     },
@@ -192,6 +201,15 @@
         {
           "name": "Dinner booked for 19:30, ring if we are late",
           "stayMin": 0
+        },
+        {
+          "name": "Hotel Nikko Fukuoka",
+          "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan",
+          "lat": 33.591,
+          "lng": 130.4184,
+          "stayMin": 0,
+          "hotelId": "demo-hotel",
+          "role": "night"
         }
       ]
     },
@@ -230,6 +248,15 @@
           "lat": 33.5199,
           "lng": 130.5335,
           "stayMin": 30
+        },
+        {
+          "name": "Hotel Nikko Fukuoka",
+          "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan",
+          "lat": 33.591,
+          "lng": 130.4184,
+          "stayMin": 0,
+          "hotelId": "demo-hotel",
+          "role": "night"
         }
       ]
     },
@@ -268,6 +295,15 @@
           "lat": 33.5934,
           "lng": 130.3514,
           "stayMin": 60
+        },
+        {
+          "name": "Hotel Nikko Fukuoka",
+          "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan",
+          "lat": 33.591,
+          "lng": 130.4184,
+          "stayMin": 0,
+          "hotelId": "demo-hotel",
+          "role": "night"
         }
       ]
     },

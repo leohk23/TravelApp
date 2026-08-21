@@ -107,6 +107,12 @@ in, when the hotel follows the flight that brings you to it. A departure day
 also ends in an arrival — the flight home — and treating that one as the
 flight that brings you here once started the last morning in Hong Kong.
 
+The hotel is added **again at the end** of every day you sleep there, so the
+last leg is the one back to your room. `sleepsOn()` decides: check-in night
+through the last night, never the check-out date, when you leave with your
+bags and the day ends at an airport. It is skipped when the day already
+finishes at the hotel, which would route a stop to itself.
+
 A derived airport stop carries `at`, the time the ticket prints, and `atTz`,
 the zone that time is in. `scheduleDay()` **pins** the timeline to `at` rather
 than accumulating towards it, so a day starts when the flight leaves and the
