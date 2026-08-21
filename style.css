@@ -875,3 +875,26 @@ main > section { position: relative; }
 /* A dialog is a poor place to be squeezed, so a narrow screen scrolls the
    table sideways rather than crushing every field. */
 .daytable-wrap { overflow: auto; }
+
+/* ---------- the party ---------- */
+.party { margin-bottom: 14px; }
+.party-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.party-lbl { font-weight: 650; }
+.cur-lbl { display: flex; gap: 6px; align-items: center; color: var(--dim); font-size: 13px; }
+.cur-lbl select { min-height: var(--tap); max-width: 15ch; }
+
+/* One row per person. A comma-separated box made changing one name a re-type
+   of the whole party, and a typo in it silently orphaned their expenses. */
+.party-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; padding: 0; list-style: none; }
+.member {
+  display: flex; align-items: center; background: var(--sunk);
+  border-radius: 99px; padding-right: 2px;
+}
+.member .m-name {
+  min-height: var(--tap); padding: 0 6px 0 13px; font-size: 13px; font-weight: 600;
+  background: transparent; border-color: transparent; color: inherit;
+}
+.member .x { min-height: 28px; width: 28px; padding: 0; font-size: 12px; color: var(--dim); }
+.member .x:hover { color: var(--bad); background: transparent; }
+.party-add { display: flex; gap: 8px; }
+.party-add input { flex: 1; min-width: 0; }

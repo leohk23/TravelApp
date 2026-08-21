@@ -90,7 +90,7 @@ One object in `localStorage['travelapp']`, written by `save()`:
   mapView, split,                             // "split" | "map", plan-pane ratio
   itinerary: [{ id, kind, ref, from, to, fromPt?, toPt?, fromTz?, toTz?, start, end, conf, cost, notes }],
   days: [{
-    date, city, timeZone, start,             // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00"
+    date, city, timeZone, start, end,        // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00", "22:00"
     cityPt,                                  // cached geocode of city, for search bias
     items: [{ name, address?, lat?, lng?, stayMin, at?, atTz?, hotelId?, flightId?, role? }],
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },

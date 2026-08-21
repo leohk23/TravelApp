@@ -1348,9 +1348,80 @@ function legRow(d, row) {
 }
 
 /* ---------- expenses ---------- */
+
+// Somewhere to start rather than every code in the world. A trip already
+// carrying something else keeps it, so the list never loses anyone's currency.
+const CURRENCIES = ['HKD', 'JPY', 'GBP', 'EUR', 'USD', 'CNY', 'TWD', 'KRW', 'SGD',
+  'THB', 'MYR', 'VND', 'PHP', 'IDR', 'INR', 'AUD', 'NZD', 'CAD', 'CHF', 'AED'];
+
+/** "Japanese Yen" where the browser knows it, the bare code where it does not. */
+const currencyName = code => {
+  try {
+    const name = new Intl.DisplayNames(undefined, { type: 'currency' }).of(code);
+    return name && name !== code ? `${code}  ${name}` : code;
+  } catch { return code; }
+};
+
+/**
+ * Renaming someone has to carry their expenses with them, or the settle-up
+ * quietly starts counting a stranger who owes nothing and forgets the person
+ * who does.
+ */
+function renameMember(i, next) {
+  const was = state.members[i];
+  if (!next || next === was) return;
+  if (state.members.includes(next)) return toast(`${next} is already in the party.`);
+  state.members[i] = next;
+  for (const e of state.expenses) {
+    if (e.payer === was) e.payer = next;
+    e.sharedBy = e.sharedBy.map(m => (m === was ? next : m));
+  }
+  save(); render();
+}
+
+/** Removing someone re-splits what they shared. What they paid has to move first. */
+async function removeMember(i) {
+  const who = state.members[i];
+  if (state.members.length < 2) return toast('A trip needs at least one person.');
+  const paid = state.expenses.filter(e => e.payer === who).length;
+  if (paid) {
+    return toast(`${who} paid ${paid} expense${paid > 1 ? 's' : ''}. Change the payer on ${paid > 1 ? 'those' : 'that one'} first.`);
+  }
+  const shared = state.expenses.filter(e => e.sharedBy.includes(who)).length;
+  const ok = await ask({
+    title: `Remove ${who}?`,
+    body: shared ? `${shared} expense${shared > 1 ? 's are' : ' is'} split with ${who}. Their share moves to everyone else.` : '',
+    confirm: 'Remove', danger: true,
+  });
+  if (!ok) return;
+  state.members.splice(i, 1);
+  for (const e of state.expenses) e.sharedBy = e.sharedBy.filter(m => m !== who);
+  save(); render();
+}
 function renderMoney() {
-  $('#members').value = state.members.join(', ');
-  $('#currency').value = state.currency;
+  const codes = CURRENCIES.includes(state.currency) || !state.currency
+    ? CURRENCIES : [state.currency, ...CURRENCIES];
+  $('#currency').innerHTML = codes.map(c =>
+    `<option value="${esc(c)}"${c === state.currency ? ' selected' : ''}>${esc(currencyName(c))}</option>`).join('');
+
+  // A name per row with its own remove, so editing one person cannot fat-finger
+  // the rest. Comma-separated text made every edit a re-type of the whole party.
+  $('#memberList').replaceChildren(...state.members.map((m, i) => {
+    const li = document.createElement('li');
+    li.className = 'member';
+    li.innerHTML = `<button class="m-name" type="button" title="Rename">${esc(m)}</button>`
+      + `<button class="x" type="button" title="Remove from the party">✕</button>`;
+    li.querySelector('.m-name').onclick = async () => {
+      const next = await askText({
+        title: 'Rename', label: 'Name', value: m, confirm: 'Rename',
+        body: 'Their expenses come with them.',
+      });
+      if (next !== null) renameMember(i, next.trim());
+    };
+    li.querySelector('.x').onclick = () => removeMember(i);
+    return li;
+  }));
+
   $('#exPayer').innerHTML = state.members.map(m => `<option>${esc(m)}</option>`).join('');
 
   const list = $('#expenses');
@@ -1556,7 +1627,10 @@ function openWizard() {
   $('#wCities').replaceChildren(cityRow());
   wizRange = tripRange();
   $('#wCount').value = Math.max(1, state.members.length);
-  $('#wCur').value = state.currency;
+  // Same list the Expenses tab offers, so the two never disagree.
+  $('#wCur').innerHTML = (CURRENCIES.includes(state.currency) || !state.currency
+    ? CURRENCIES : [state.currency, ...CURRENCIES])
+    .map(c => `<option value="${esc(c)}"${c === state.currency ? ' selected' : ''}>${esc(currencyName(c))}</option>`).join('');
   wizShow(0);
   $('#wizard').showModal();
 }
@@ -1603,7 +1677,7 @@ async function buildTrip() {
   state.members = ['Me', ...Array.from({ length: count - 1 }, (_, i) => `Traveller ${i + 2}`)];
 
   state.name = $('#wTrip').value.trim() || rows.map(c => c.name).join(' and ');
-  state.currency = $('#wCur').value.trim() || 'HKD';
+  state.currency = $('#wCur').value || 'HKD';
   state.dayIdx = 0;
   save();
   $('#wizard').close();
@@ -2085,13 +2159,16 @@ $('#printBtn').onclick = () => window.print();
 $('#optimise').onclick = optimize;
 $('#recalc').onclick = recalc;
 
-$('#members').onchange = e => {
-  state.members = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-  if (!state.members.length) state.members = ['Me'];
-  for (const ex of state.expenses) ex.sharedBy = ex.sharedBy.filter(m => state.members.includes(m));
-  save(); renderMoney();
+$('#addMember').onsubmit = e => {
+  e.preventDefault();
+  const name = $('#memberName').value.trim();
+  if (!name) return;
+  if (state.members.includes(name)) return toast(`${name} is already in the party.`);
+  state.members.push(name);
+  $('#memberName').value = '';
+  save(); render();
 };
-$('#currency').onchange = e => { state.currency = e.target.value.trim() || 'HKD'; save(); render(); };
+$('#currency').onchange = e => { state.currency = e.target.value || 'HKD'; save(); render(); };
 $('#addExpense').onsubmit = e => {
   e.preventDefault();
   const desc = $('#exDesc').value.trim(), amount = +$('#exAmount').value;

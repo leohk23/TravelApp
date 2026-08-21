@@ -140,9 +140,17 @@
   <section id="money" hidden>
     <div class="cols">
       <div class="pane">
-        <div class="daybar">
-          <label>Party <input id="members" placeholder="Alice, Bob, Me"></label>
-          <label>Currency <input id="currency" size="4"></label>
+        <div class="party">
+          <div class="party-head">
+            <span class="party-lbl">Party</span>
+            <span class="spacer"></span>
+            <label class="cur-lbl">Currency <select id="currency"></select></label>
+          </div>
+          <ul id="memberList" class="party-list"></ul>
+          <form id="addMember" class="party-add">
+            <input id="memberName" placeholder="Add someone…" autocomplete="off" maxlength="40">
+            <button type="submit">Add</button>
+          </form>
         </div>
         <form id="addExpense" class="search">
           <input id="exDesc" placeholder="What for?">
@@ -190,7 +198,7 @@
       <small>Names go in later, on the Expenses tab.</small>
     </label>
     <label>Currency you will mostly spend in
-      <input id="wCur" size="6" placeholder="HKD">
+      <select id="wCur"></select>
     </label>
   </div>
 
