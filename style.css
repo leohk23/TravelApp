@@ -155,12 +155,15 @@ header {
 }
 .daystrip-row { display: flex; gap: 10px; align-items: center; }
 /* The date left the pills so they could stay short. It reads in full here,
-   where there is a whole line for it. */
-.daywhen { display: flex; gap: 10px; align-items: baseline; margin: 7px 2px 0; }
-.daywhen .dw-date { font-size: 14px; font-weight: 600; }
-.daywhen .dw-city { font-size: 13px; color: var(--dim); }
-.daywhen .dw-none { font-size: 13px; color: var(--warn); }
-.daywhen:empty { display: none; }
+   where there is a whole line for it - and the two day-plan controls ride
+   along, so they stay reachable however far you have scrolled the stops. */
+.daywhen { display: flex; gap: 6px; align-items: center; margin: 7px 0 0 2px; }
+.dw-text { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin: 0; min-width: 0; }
+.dw-text .dw-date { font-size: 14px; font-weight: 600; }
+.dw-text .dw-city { font-size: 13px; color: var(--dim); }
+.dw-text .dw-hours { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.dw-text .dw-none { font-size: 13px; color: var(--warn); }
+.daywhen .icon svg { width: 18px; height: 18px; fill: currentColor; }
 .tabs {
   display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
   padding: 2px; margin: -2px; flex: 1; min-width: 0; scroll-padding-inline: 8px;
@@ -373,7 +376,6 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
   .cols { flex-direction: row; }
   #map { min-height: 0; border-left: 1px solid var(--line); border-top: 0; }
   .pane { padding: 16px 18px 28px; }
-  .title { max-width: 24ch; }
 
   .ribbon {
     order: 0; padding: 8px 12px 0;
@@ -855,3 +857,21 @@ main > section { position: relative; }
 
 /* Which clock a time is on, next to a departure airport in another timezone. */
 .when small.tz { font-size: 10px; line-height: 1.2; color: var(--accent); }
+
+/* Where the day is meant to stop. Reads like a stop so it lines up with them,
+   and turns warning-coloured when the plan does not fit inside it. */
+.day-end {
+  display: flex; gap: 10px; align-items: baseline;
+  margin: 6px 0 2px 26px; padding: 8px 12px 8px 30px;
+  color: var(--dim); font-size: 13px; border-left: 2px solid var(--line);
+}
+.day-end .when { flex: 0 0 auto; font-weight: 600; }
+.day-end.over { color: var(--warn); border-left-color: var(--warn); }
+
+/* Two clock faces in one cell, kept on one line so the table stays readable. */
+.daytable .r-hours { white-space: nowrap; color: var(--dim); font-size: 12px; }
+.daytable .r-hours input { width: 6.4rem; display: inline-block; }
+.daytable .r-hours span { padding: 0 5px; }
+/* A dialog is a poor place to be squeezed, so a narrow screen scrolls the
+   table sideways rather than crushing every field. */
+.daytable-wrap { overflow: auto; }

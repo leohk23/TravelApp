@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -305,6 +305,14 @@ for (const c of FARES.cities) {
     }
   }
 }
+
+// --- reading a clock face off an input ---
+assert.equal(clockOf("22:00"), 22 * 60);
+assert.equal(clockOf("9:05"), 9 * 60 + 5, "a browser may hand back one digit for the hour");
+assert.equal(clockOf("00:00"), 0, "midnight is a time, not a falsy nothing");
+assert.equal(clockOf(""), null, "no end time set");
+assert.equal(clockOf("half nine"), null);
+assert.equal(clockOf("12:345"), null);
 
 // --- money on screen: a sign in front, grouped, no decimals ---
 // Exact symbols follow the reader's locale, so assert the shape, not the glyph.

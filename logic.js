@@ -140,6 +140,14 @@ export function placePairs(items) {
   return out;
 }
 
+/** "22:00" -> 1320 minutes since midnight. null when it is not a clock time. */
+export function clockOf(hhmm) {
+  const s = String(hhmm || '');
+  if (s.length < 4 || s.length > 5 || s[s.length - 3] !== ':') return null;
+  const h = +s.slice(0, s.length - 3), m = +s.slice(-2);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+}
+
 /** "2026-09-12T08:20" -> 500 minutes since midnight. null when there is no time. */
 export function clockMinutes(dt) {
   const s = String(dt || '');
@@ -159,8 +167,7 @@ export function clockMinutes(dt) {
  * own timezone and the row after it reads in the destination's.
  */
 export function scheduleDay(items, legs = [], startTime = "09:00") {
-  const [h, mi] = startTime.split(":").map(Number);
-  let t = h * 60 + mi;
+  let t = clockOf(startTime) ?? 9 * 60;
   const out = [];
   let lastPlace = null;
 

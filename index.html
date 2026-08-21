@@ -52,7 +52,16 @@
     <div id="dayTabs" class="tabs"></div>
     <button id="dayEdit" class="icon" title="Edit this day: date, city, add or delete">⋯</button>
   </div>
-  <p id="dayWhen" class="daywhen"></p>
+  <div class="daywhen">
+    <p id="dayWhen" class="dw-text"></p>
+    <span class="spacer"></span>
+    <button id="optimise" class="icon" type="button" hidden
+            title="Reorder the stops you added to cut travel, then look the transit up again"
+            aria-label="Optimise the order"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3 5 7h3v10h2V7h3L9 3zm6 18 4-4h-3V7h-2v10h-3l4 4z"/></svg></button>
+    <button id="recalc" class="icon" type="button" hidden
+            title="Look up every leg again"
+            aria-label="Recalculate transit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6a5.9 5.9 0 0 1 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+  </div>
 </div>
 
 <main>
@@ -103,11 +112,6 @@
   <section id="local" hidden>
     <div class="cols" id="localCols">
       <div class="pane">
-        <div class="daybar">
-          <label>Start <input type="time" id="dayStart"></label>
-          <button id="optimise" title="Reorder stops by geographic proximity, then re-look-up the transit">Optimise</button>
-          <button id="recalc">Recalculate</button>
-        </div>
 
         <div id="dayBookings" class="day-bookings"></div>
         <ol id="stops"></ol>

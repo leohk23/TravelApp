@@ -1,10 +1,10 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 
-const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', items: [], legs: [] });
+const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
   name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
@@ -607,10 +607,18 @@ function renderDays() {
   tabs.append(add);
 
   const d = day();
+  const hours = d ? [d.start, d.end].filter(Boolean).join(' to ') : '';
   $('#dayWhen').innerHTML = d?.date
     ? `<span class="dw-date">${esc(fmtDayFull(d.date))}</span>`
       + (showCity && d.city ? `<span class="dw-city">${esc(d.city)}</span>` : '')
+      + (hours ? `<span class="dw-hours">${esc(hours)}</span>` : '')
     : '<span class="dw-none">No date set, so transit times cannot be looked up</span>';
+
+  // These two act on the day plan only, and they ride with the date so they
+  // stay reachable however far down the stops you have scrolled.
+  const planning = state.tab === 'local';
+  $('#optimise').hidden = !planning;
+  $('#recalc').hidden = !planning;
 
   // With a long trip the selected tab can sit off-screen after a re-render.
   tabs.querySelector('.tab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -977,7 +985,6 @@ let dragFrom = null;
 
 function renderPlan() {
   const d = day();
-  $('#dayStart').value = d.start;
   renderDayBookings(d);
   const list = $('#stops');
   list.innerHTML = '';
@@ -986,11 +993,25 @@ function renderPlan() {
   const ord = new Map();
   d.items.forEach((it, i) => { if (isPlace(it)) ord.set(i, ord.size + 1); });
 
-  for (const row of scheduleDay(d.items, d.legs, d.start)) {
+  const rows = scheduleDay(d.items, d.legs, d.start);
+  for (const row of rows) {
     list.append(row.type === 'item' ? itemRow(d, row, ord) : legRow(d, row));
   }
   if (!d.items.length) {
     list.innerHTML = '<li class="empty">Use + to add a place or activity.</li>';
+  } else if (d.end) {
+    // When the day is meant to stop, so the question "does this actually fit"
+    // has an answer on the screen rather than in your head.
+    const close = clockOf(d.end);
+    const last = [...rows].reverse().find(r => r.type === 'item');
+    const over = close != null && last && last.depart > close;
+    const li = document.createElement('li');
+    li.className = 'day-end' + (over ? ' over' : '');
+    li.innerHTML = `<span class="when">${esc(d.end)}</span>`
+      + `<span class="what">${over
+          ? `Day ends, and the plan runs ${esc(fmtDur((last.depart - close) * 60))} past it`
+          : 'Day ends'}</span>`;
+    list.append(li);
   }
   drawMap();
 }
@@ -1410,7 +1431,7 @@ function renderOverview() {
       </header>
 
       ${stays.length ? `<div class="ovline"><span class="k">Staying</span><span>${stays.map(b =>
-        `${esc(b.ref || 'Hotel')}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}${b.from ? ` — ${esc(b.from)}` : ''}`
+        `${esc(b.ref || 'Hotel')}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
       ).join('<br>')}</span></div>` : ''}
 
       ${moves.length ? `<div class="ovline"><span class="k">Moving</span><span>${moves.map(b =>
@@ -1924,6 +1945,9 @@ function renderDayTable() {
       <th><button class="r-go" type="button" title="Open this day">Day ${i + 1}</button></th>
       <td class="r-when">${esc(wkday(d.date))}</td>
       <td><span class="ac"><input class="r-city" value="${esc(d.city || '')}" placeholder="City" autocomplete="off"></span></td>
+      <td class="r-hours"><input type="time" class="r-start" value="${esc(d.start || '')}"
+        aria-label="Day ${i + 1} starts"><span>to</span><input type="time" class="r-end"
+        value="${esc(d.end || '')}" aria-label="Day ${i + 1} ends"></td>
       <td><button class="r-fill" type="button" title="Use this city for every later day">↓</button></td>
       <td><button class="r-del x" type="button" title="Delete this day"${state.days.length < 2 ? ' disabled' : ''}>✕</button></td>`;
 
@@ -1951,6 +1975,15 @@ function renderDayTable() {
       delete d.timeZone;
       save(); render(); renderDayTable();
     };
+
+    // The plan is rebuilt from the new start, so this is a recalculation, not
+    // just a label. The end time only draws a line, so it costs nothing.
+    tr.querySelector('.r-start').onchange = e => {
+      d.start = e.target.value || '09:00';
+      save(); render();
+      if (d === day()) recalc();
+    };
+    tr.querySelector('.r-end').onchange = e => { d.end = e.target.value; save(); render(); };
 
     tr.querySelector('.r-fill').onclick = () => {
       for (let k = i + 1; k < state.days.length; k++) {
@@ -1987,7 +2020,6 @@ function renderDayTable() {
 $('#dayEdit').onclick = openDayDlg;
 $('#ddDone').onclick = () => $('#dayDlg').close();
 $('#ddAdd').onclick = () => { addDayAfter(state.days.length - 1); renderDayTable(); tripCal.render(); };
-$('#dayStart').onchange = e => { day().start = e.target.value; save(); recalc(); };
 /** First night of the trip with no stay booked, so "+ Hotel" lands somewhere useful. */
 function firstUncoveredDate() {
   for (const x of state.days) {
