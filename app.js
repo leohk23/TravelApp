@@ -3,6 +3,9 @@ import { search, searchCity, searchAirports, geocode, otherName, openingHours, r
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
+// Kept in step with sw.js by hand. Its whole job is to answer "is this the
+// build we just deployed, or one the browser kept?" from the phone itself.
+const BUILD = 'v50';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -1665,8 +1668,12 @@ function renderOverview() {
     cities.length ? [cities.length > 1 ? 'Cities' : 'City', cities.join(', ')] : null,
     ['Party', state.members.join(', ')],
   ].filter(Boolean);
+  // A label cell and a value cell per fact, filling a two-column grid. Two
+  // goes at an inline run of chips both ended up painting the city on top of
+  // the dates; grid cells cannot share a space, so this removes the
+  // possibility rather than tuning the sizing again.
   $('#ovMeta').innerHTML = facts
-    .map(([k, v]) => `<span class="fact${k === 'When' ? ' when' : ''}"><span class="k">${k}</span>${esc(v)}</span>`)
+    .map(([k, v]) => `<span class="fact-k">${k}</span><span class="fact-v">${esc(v)}</span>`)
     .join('');
 
   const showCity = multiCity();
@@ -1874,6 +1881,7 @@ async function buildTrip() {
 
 $('#setupBtn').onclick = openWizard;
 $('#aboutBtn').onclick = () => {
+  $('#buildNo').textContent = BUILD;
   $('#placeLang').value = state.placeLang || 'en';
   $('#aboutDlg').showModal();
 };
