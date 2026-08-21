@@ -158,7 +158,8 @@
           "role": "night",
           "localName": "ホテル日航福岡"
         }
-      ]
+      ],
+      "end": "23:00"
     },
     {
       "date": "2026-09-13",
@@ -222,7 +223,8 @@
           "role": "night",
           "localName": "ホテル日航福岡"
         }
-      ]
+      ],
+      "end": "21:30"
     },
     {
       "date": "2026-09-14",
@@ -274,7 +276,8 @@
           "role": "night",
           "localName": "ホテル日航福岡"
         }
-      ]
+      ],
+      "end": "19:00"
     },
     {
       "date": "2026-09-15",
@@ -326,7 +329,8 @@
           "role": "night",
           "localName": "ホテル日航福岡"
         }
-      ]
+      ],
+      "end": "21:00"
     },
     {
       "date": "2026-09-16",
@@ -382,7 +386,8 @@
           "flightId": "demo-flight-back",
           "role": "arrive"
         }
-      ]
+      ],
+      "end": ""
     }
   ],
   "expenses": [

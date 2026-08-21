@@ -454,6 +454,11 @@ for (const e of DEMO.expenses) {
 }
 const dates = DEMO.days.map(d => d.date);
 assert.deepEqual(dates, [...dates].sort(), "demo days must run forward");
+for (const day of DEMO.days) {
+  assert.ok(clockOf(day.start) != null, "every demo day needs a start time: " + day.date);
+  assert.ok(!day.end || clockOf(day.end) > clockOf(day.start),
+    "a demo day that sets an end must end after it starts: " + day.date);
+}
 for (const d of DEMO.days) {
   for (const it of d.items) {
     assert.ok(it.name, "every demo stop needs a name");
