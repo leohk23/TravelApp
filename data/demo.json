@@ -1,0 +1,135 @@
+{
+  "name": "Fukuoka, 5 days",
+  "currency": "JPY",
+  "members": ["Me", "Ada", "Ken"],
+  "tab": "overview",
+  "itinView": "all",
+  "dayIdx": 0,
+  "mapView": "split",
+  "split": 0.72,
+  "placeLang": "en",
+  "fares": {},
+  "itinerary": [
+    {
+      "id": "demo-flight-out",
+      "kind": "Flight",
+      "ref": "CX 510",
+      "from": "HKG",
+      "to": "FUK",
+      "start": "2026-09-12T08:20",
+      "end": "2026-09-12T13:05",
+      "conf": "K7QW2M",
+      "cost": 156000,
+      "notes": "Three seats together, 32A to 32C. Checked bags 23 kg each.",
+      "fromPt": { "lat": 22.308, "lng": 113.9185, "name": "Hong Kong International Airport", "address": "Chek Lap Kok, HK" },
+      "toPt": { "lat": 33.5859, "lng": 130.4506, "name": "Fukuoka Airport", "address": "Hakata, Fukuoka, JP" }
+    },
+    {
+      "id": "demo-flight-back",
+      "kind": "Flight",
+      "ref": "CX 511",
+      "from": "FUK",
+      "to": "HKG",
+      "start": "2026-09-16T14:30",
+      "end": "2026-09-16T17:20",
+      "conf": "K7QW2M",
+      "cost": 0,
+      "notes": "Return half of the same booking, so it carries no separate cost.",
+      "fromPt": { "lat": 33.5859, "lng": 130.4506, "name": "Fukuoka Airport", "address": "Hakata, Fukuoka, JP" },
+      "toPt": { "lat": 22.308, "lng": 113.9185, "name": "Hong Kong International Airport", "address": "Chek Lap Kok, HK" }
+    },
+    {
+      "id": "demo-hotel",
+      "kind": "Hotel",
+      "ref": "Hotel Nikko Fukuoka",
+      "from": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan",
+      "to": "",
+      "start": "2026-09-12T15:00",
+      "end": "2026-09-16T11:00",
+      "conf": "NKF-8842190",
+      "cost": 96000,
+      "notes": "Two rooms, four nights. Breakfast included. Luggage can be left after checkout.",
+      "lat": 33.591,
+      "lng": 130.4184
+    }
+  ],
+  "days": [
+    {
+      "date": "2026-09-12",
+      "city": "Fukuoka",
+      "timeZone": "Asia/Tokyo",
+      "start": "09:00",
+      "legs": {},
+      "items": [
+        { "name": "FUK", "address": "Fukuoka Airport", "lat": 33.5859, "lng": 130.4506, "stayMin": 0, "flightId": "demo-flight-out", "role": "arrive" },
+        { "name": "Hotel Nikko Fukuoka", "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan", "lat": 33.591, "lng": 130.4184, "stayMin": 0, "hotelId": "demo-hotel" },
+        { "name": "Pick up the pocket wifi at the hotel desk", "stayMin": 15 },
+        { "name": "Canal City Hakata", "address": "Sumiyoshi, Hakata-ku, Fukuoka", "lat": 33.5896, "lng": 130.4113, "stayMin": 90 },
+        { "name": "Kushida Shrine", "address": "Kamikawabatamachi, Hakata-ku, Fukuoka", "lat": 33.5934, "lng": 130.4106, "stayMin": 30 },
+        { "name": "Nakasu yatai stalls", "address": "Nakasu, Hakata-ku, Fukuoka", "lat": 33.593, "lng": 130.4055, "stayMin": 90 }
+      ]
+    },
+    {
+      "date": "2026-09-13",
+      "city": "Fukuoka",
+      "timeZone": "Asia/Tokyo",
+      "start": "09:00",
+      "legs": {},
+      "items": [
+        { "name": "Hotel Nikko Fukuoka", "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan", "lat": 33.591, "lng": 130.4184, "stayMin": 0, "hotelId": "demo-hotel" },
+        { "name": "Ohori Park", "address": "Ohorikoen, Chuo-ku, Fukuoka", "lat": 33.586, "lng": 130.3792, "stayMin": 60 },
+        { "name": "Fukuoka Castle Ruins", "address": "Jonai, Chuo-ku, Fukuoka", "lat": 33.5847, "lng": 130.383, "stayMin": 45 },
+        { "name": "Fukuoka Art Museum", "address": "Ohorikoen, Chuo-ku, Fukuoka", "lat": 33.5843, "lng": 130.3806, "stayMin": 90 },
+        { "name": "Tenjin", "address": "Tenjin, Chuo-ku, Fukuoka", "lat": 33.59, "lng": 130.3985, "stayMin": 120 },
+        { "name": "Dinner booked for 19:30, ring if we are late", "stayMin": 0 }
+      ]
+    },
+    {
+      "date": "2026-09-14",
+      "city": "Fukuoka",
+      "timeZone": "Asia/Tokyo",
+      "start": "09:30",
+      "legs": {},
+      "items": [
+        { "name": "Hotel Nikko Fukuoka", "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan", "lat": 33.591, "lng": 130.4184, "stayMin": 0, "hotelId": "demo-hotel" },
+        { "name": "Dazaifu Tenmangu", "address": "Saifu, Dazaifu, Fukuoka", "lat": 33.5215, "lng": 130.5348, "stayMin": 75 },
+        { "name": "Kyushu National Museum", "address": "Ishizaka, Dazaifu, Fukuoka", "lat": 33.5185, "lng": 130.5399, "stayMin": 90 },
+        { "name": "Starbucks Dazaifu Omotesando", "address": "Saifu, Dazaifu, Fukuoka", "lat": 33.5199, "lng": 130.5335, "stayMin": 30 }
+      ]
+    },
+    {
+      "date": "2026-09-15",
+      "city": "Fukuoka",
+      "timeZone": "Asia/Tokyo",
+      "start": "09:00",
+      "legs": {},
+      "items": [
+        { "name": "Hotel Nikko Fukuoka", "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan", "lat": 33.591, "lng": 130.4184, "stayMin": 0, "hotelId": "demo-hotel" },
+        { "name": "Meinohama Ferry Terminal", "address": "Meinohama, Nishi-ku, Fukuoka", "lat": 33.5942, "lng": 130.3176, "stayMin": 15 },
+        { "name": "Nokonoshima Island Park", "address": "Noko, Nishi-ku, Fukuoka", "lat": 33.6303, "lng": 130.3122, "stayMin": 150 },
+        { "name": "Fukuoka Tower", "address": "Momochihama, Sawara-ku, Fukuoka", "lat": 33.5934, "lng": 130.3514, "stayMin": 60 }
+      ]
+    },
+    {
+      "date": "2026-09-16",
+      "city": "Fukuoka",
+      "timeZone": "Asia/Tokyo",
+      "start": "08:30",
+      "legs": {},
+      "items": [
+        { "name": "Hotel Nikko Fukuoka", "address": "Hakata-ekimae, Hakata-ku, Fukuoka, Japan", "lat": 33.591, "lng": 130.4184, "stayMin": 0, "hotelId": "demo-hotel" },
+        { "name": "Tochoji Temple", "address": "Gokushomachi, Hakata-ku, Fukuoka", "lat": 33.5931, "lng": 130.4143, "stayMin": 30 },
+        { "name": "Hakata Station", "address": "Hakataekichuogai, Hakata-ku, Fukuoka", "lat": 33.5898, "lng": 130.4207, "stayMin": 60 },
+        { "name": "FUK", "address": "Fukuoka Airport", "lat": 33.5859, "lng": 130.4506, "stayMin": 0, "flightId": "demo-flight-back", "role": "depart" }
+      ]
+    }
+  ],
+  "expenses": [
+    { "desc": "Flight, CX 510, HKG → FUK", "amount": 156000, "payer": "Me", "sharedBy": ["Me", "Ada", "Ken"], "src": "demo-flight-out" },
+    { "desc": "Hotel, Hotel Nikko Fukuoka, Hakata-ekimae, Hakata-ku, Fukuoka, Japan", "amount": 96000, "payer": "Me", "sharedBy": ["Me", "Ada", "Ken"], "src": "demo-hotel" },
+    { "desc": "Yatai dinner in Nakasu", "amount": 8400, "payer": "Ada", "sharedBy": ["Me", "Ada", "Ken"] },
+    { "desc": "Dazaifu train tickets", "amount": 2520, "payer": "Ken", "sharedBy": ["Me", "Ada", "Ken"] },
+    { "desc": "Nokonoshima ferry and park entry", "amount": 3540, "payer": "Me", "sharedBy": ["Me", "Ada", "Ken"] },
+    { "desc": "Ichiran ramen", "amount": 3300, "payer": "Ada", "sharedBy": ["Me", "Ada"] }
+  ]
+}

@@ -211,6 +211,80 @@
       "urbanKm": 32
     },
     {
+      "id": "fukuoka",
+      "label": "Fukuoka",
+      "currency": "JPY",
+      "lat": 33.5904,
+      "lng": 130.4017,
+      "radiusKm": 40,
+      "modes": {
+        "BUS": [
+          [2, 150],
+          [5, 240],
+          [10, 350],
+          [999, 620]
+        ],
+        "*": [
+          [3, 210],
+          [7, 260],
+          [11, 300],
+          [15, 340],
+          [999, 380]
+        ]
+      },
+      "operators": [
+        {
+          "id": "nishitetsu-bus",
+          "label": "Nishitetsu Bus",
+          "match": ["西鉄バス", "nishitetsu bus"],
+          "steps": [
+            [2, 150],
+            [5, 240],
+            [10, 350],
+            [999, 620]
+          ]
+        },
+        {
+          "id": "fukuoka-subway",
+          "label": "Fukuoka City Subway",
+          "match": ["福岡市地下鉄", "fukuoka city subway", "fukuoka subway"],
+          "steps": [
+            [3, 210],
+            [7, 260],
+            [11, 300],
+            [15, 340],
+            [999, 380]
+          ]
+        },
+        {
+          "id": "nishitetsu",
+          "label": "Nishitetsu",
+          "match": ["西日本鉄道", "西鉄", "nishitetsu"],
+          "steps": [
+            [3, 170],
+            [6, 220],
+            [10, 300],
+            [16, 420],
+            [999, 700]
+          ]
+        },
+        {
+          "id": "jr-kyushu",
+          "label": "JR Kyushu",
+          "match": ["jr九州", "jr kyushu", "jr"],
+          "steps": [
+            [3, 170],
+            [6, 210],
+            [10, 250],
+            [15, 290],
+            [20, 340],
+            [999, 640]
+          ]
+        }
+      ],
+      "urbanKm": 35
+    },
+    {
       "id": "singapore",
       "label": "Singapore",
       "currency": "SGD",

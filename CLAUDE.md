@@ -194,6 +194,12 @@ under `data/` is stale-while-revalidate, and map tiles stay cache-first with a
 `.github/workflows/pages.yml`, runs `test.mjs` and publishes both on any push to
 either branch. Settings → Pages must be on **Source: GitHub Actions**.
 
+`data/demo.json` is a worked-through Fukuoka trip. The preview build seeds
+itself with it on a first visit, so a change can be tried against real-shaped
+data without typing a trip in. `?demo` reloads it anywhere, asking first when a
+trip is already saved. Production never seeds itself. Keep it in the current
+state shape — `test.mjs` checks its links and dates, not its taste.
+
 ## Before finishing a change
 
 ```

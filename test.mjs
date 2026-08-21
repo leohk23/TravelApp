@@ -306,6 +306,35 @@ for (const c of FARES.cities) {
   }
 }
 
+// --- Fukuoka, the city the preview demo plans ---
+const FUKUOKA = { lat: 33.5904, lng: 130.4017 };
+assert.equal(fareCity(FARES, FUKUOKA).id, "fukuoka");
+assert.equal(estimateFare(FARES, FUKUOKA, null, [ride("SUBWAY", 2, "福岡市地下鉄")]).amount, 210,
+  "one Fukuoka subway zone");
+assert.equal(estimateFare(FARES, FUKUOKA, null, [ride("RAIL", 15, "西鉄")]).amount, 420,
+  "Tenjin to Dazaifu on Nishitetsu");
+
+// --- the demo trip the preview build seeds itself with ---
+const DEMO = JSON.parse(fs.readFileSync(new URL("./data/demo.json", import.meta.url), "utf8"));
+const bookingIds = new Set(DEMO.itinerary.map(b => b.id));
+for (const e of DEMO.expenses) {
+  assert.ok(!e.src || bookingIds.has(e.src), "expense points at a booking that is not there: " + e.desc);
+  assert.ok(e.sharedBy.every(m => DEMO.members.includes(m)), "expense splits to a stranger: " + e.desc);
+  assert.ok(DEMO.members.includes(e.payer), "expense paid by a stranger: " + e.desc);
+}
+const dates = DEMO.days.map(d => d.date);
+assert.deepEqual(dates, [...dates].sort(), "demo days must run forward");
+for (const d of DEMO.days) {
+  for (const it of d.items) {
+    assert.ok(it.name, "every demo stop needs a name");
+    assert.equal(it.lat == null, it.lng == null, "a demo stop has half a coordinate: " + it.name);
+    if (it.hotelId) assert.ok(bookingIds.has(it.hotelId), "demo stop links a missing hotel");
+    if (it.flightId) assert.ok(bookingIds.has(it.flightId), "demo stop links a missing flight");
+  }
+}
+assert.ok(fareCity(FARES, DEMO.days[0].items.find(i => i.lat != null)),
+  "the demo city needs a fare table, or the demo shows no fares at all");
+
 // --- step times belong to the destination, not the device ---
 assert.equal(fmtInstant("2026-09-01T09:02:00Z", "Asia/Hong_Kong"), "17:02");
 assert.equal(fmtInstant("2026-09-01T09:02:00Z", "Europe/London"), "10:02", "summer time applied");

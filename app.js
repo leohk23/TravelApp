@@ -1968,7 +1968,35 @@ if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     console.warn("service worker not registered:", err.message)));
 }
 
+/**
+ * The preview build opens on a worked-through trip instead of an empty one, so
+ * a change can be tried against real-shaped data without typing a trip in
+ * first. Legs are left out on purpose: fetching them live is the point.
+ *
+ * `?demo` reloads it over whatever is there, on any build. Production never
+ * seeds itself.
+ */
+async function loadDemo(replacing) {
+  // Seeding overwrites the trip that is already saved, so never do it silently.
+  if (replacing && !await ask({
+    title: 'Load the demo trip?',
+    body: 'The trip saved in this browser is replaced by a sample Fukuoka trip. There is no undo.',
+    confirm: 'Load demo', danger: true,
+  })) return;
+  try {
+    const r = await fetch(new URL('./data/demo.json', import.meta.url));
+    if (!r.ok) throw new Error(r.status);
+    state = { ...blank(), ...await r.json() };
+    save();
+    render();
+    showTab(state.tab);
+  } catch { toast('The demo trip could not be loaded.'); }
+}
+
 const firstRun = !localStorage.getItem(STORE);
+const seedDemo = location.search.includes('demo')
+  || (firstRun && location.pathname.includes('/preview/'));
 render();
 showTab(state.tab);
-if (firstRun) openWizard();
+if (seedDemo) loadDemo(!firstRun);
+else if (firstRun) openWizard();
