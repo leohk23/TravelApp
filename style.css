@@ -1049,3 +1049,16 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
   border-radius: 99px; padding: 1px 6px; min-width: 18px;
 }
 .subribbon button.on .iv-count { background: #ffffff2e; color: #fff; }
+
+/* ---------- instructions read as instructions ---------- */
+/* Hints and explanations are the app talking about itself, not content. Grey
+   and italic so the eye can skip them once they have been read. */
+#actHelp,
+.cal-hint,
+.dd-hours small,
+.wiz-head p,
+.ask-head p,
+.wiz-body label small,
+.hintrow {
+  color: var(--dim); font-style: italic;
+}

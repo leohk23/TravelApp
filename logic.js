@@ -576,6 +576,32 @@ export function bookingCost(booking, tripCurrency) {
   return rate > 0 ? Math.round(paid * rate * 100) / 100 : null;
 }
 
+/**
+ * The latest a day can still be doing something and make its flight.
+ *
+ * A departure airport stop knows when the plane leaves; you need to be there
+ * well before that. Returns { minutes, before } — the deadline, and the index
+ * of the stop it belongs to — or null on a day with no departure to catch.
+ *
+ * The index is the whole point. An arrival day also contains a departure: you
+ * left Hong Kong that morning. Only what comes *before* the gate has to fit,
+ * or the first day of the trip warns about every stop on it.
+ *
+ * Times are read as clock times on the same day, which is what the timeline
+ * shows. A flight leaving from another timezone on the same day would be
+ * compared against the wrong clock, and no itinerary yet does that.
+ */
+export function flightCutoff(items, bufferMin = 120) {
+  let best = null;
+  (items || []).forEach((it, i) => {
+    if (it.role !== 'depart' || !it.at) return;
+    const at = clockMinutes(it.at);
+    if (at == null) return;
+    if (!best || at < best.at) best = { at, before: i };
+  });
+  return best ? { minutes: best.at - bufferMin, before: best.before } : null;
+}
+
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;
@@ -639,6 +665,38 @@ function namedRoute(city, ridden) {
   return null;
 }
 
+/**
+ * How far a step runs along its line's own track.
+ *
+ * A metro charges by rail distance, and a straight line across the map is a
+ * different number: Fukuoka Airport to Hakata is 2.8 km as the crow flies and
+ * 3.3 km by rail, which is the difference between the first fare zone and the
+ * second. Where a city gives a line its stations and their kilometrage, and a
+ * step starts and ends at two of them, the track wins.
+ *
+ * Returns null whenever either end is not on the line, which is most steps.
+ */
+function railKm(city, step) {
+  const agency = String(step?.agency || '').toLowerCase();
+  if (!agency) return null;
+  for (const line of city.lines || []) {
+    if (!(line.match || []).some(m => agency.includes(String(m).toLowerCase()))) continue;
+    const snap = line.snapM ?? 400;
+    const station = pt => {
+      if (!pt) return null;
+      let best = null;
+      for (const st of line.stations || []) {
+        const metres = kmBetween(pt, st) * 1000;
+        if (metres <= snap && (!best || metres < best.metres)) best = { km: st.km, metres };
+      }
+      return best;
+    };
+    const from = station(step.fromPt), to = station(step.toPt);
+    if (from && to && from.km !== to.km) return Math.abs(from.km - to.km);
+  }
+  return null;
+}
+
 /** First operator whose name matches, or null. Order in the data decides. */
 function operatorFor(city, agency) {
   const name = String(agency || "").toLowerCase();
@@ -694,6 +752,10 @@ export function estimateFare(table, from, to, steps = [], exact = null) {
     .reduce((n, s) => n + (s.seconds || 0), 0);
   const spare = Math.max(0, (to ? kmBetween(from, to) : 0) - knownKm);
   const legKm = s => {
+    // The operator bills by its own track, so that number comes first when
+    // the line is one the table knows station by station.
+    const rail = railKm(city, s);
+    if (rail != null) return rail;
     if (s.metres != null) return s.metres / 1000;
     if (s.fromPt && s.toPt) return kmBetween(s.fromPt, s.toPt);
     return blindSecs ? spare * ((s.seconds || 0) / blindSecs) : 0;

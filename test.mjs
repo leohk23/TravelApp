@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours, decodePolyline, bookingCost } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours, decodePolyline, bookingCost } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -454,6 +454,37 @@ assert.equal(optimizeDay([{ name: "Hotel", lat: 0, lng: 0, hotelId: "h" },
   { name: "A", lat: 1, lng: 0 }], gap), null, "too short to be worth reordering");
 assert.equal(optimizeDay([{ name: "a note" }, { name: "another" }], gap), null,
   "nothing with coordinates, nothing to order");
+// --- the last moment a day can still make its flight ---
+const goingHome = [
+  { name: "Hotel", hotelId: "h" },
+  { name: "Tochoji", lat: 33.59, lng: 130.41 },
+  { name: "FUK", flightId: "f1", role: "depart", at: "2026-09-16T14:30" },
+  { name: "HKG", flightId: "f1", role: "arrive", at: "2026-09-16T17:20" },
+];
+assert.deepEqual(flightCutoff(goingHome), { minutes: 12 * 60 + 30, before: 2 },
+  "two hours before a 14:30 departure, and only what comes before the gate");
+assert.equal(flightCutoff(goingHome, 180).minutes, 11 * 60 + 30, "a longer buffer moves it earlier");
+assert.equal(flightCutoff([{ name: "Hotel", hotelId: "h" }]), null, "no flight to catch");
+assert.equal(flightCutoff([{ flightId: "f", role: "arrive", at: "2026-09-12T13:05" }]), null,
+  "landing is not a deadline");
+assert.equal(flightCutoff([]), null);
+assert.equal(flightCutoff(null), null);
+assert.equal(flightCutoff([{ flightId: "f", role: "depart" }]), null, "a flight with no time set");
+
+// The morning you fly out of home the departure is the first thing on the day,
+// so nothing precedes it and nothing can be late for it.
+assert.equal(flightCutoff([
+  { flightId: "f", role: "depart", at: "2026-09-12T08:20" },
+  { flightId: "f", role: "arrive", at: "2026-09-12T13:05" },
+  { name: "Canal City", lat: 33.58, lng: 130.41 },
+]).before, 0, "an arrival day has nothing before its gate");
+// The earliest departure wins: leaving at 09:00 is the deadline even if another
+// flight goes later the same day.
+assert.equal(flightCutoff([
+  { flightId: "a", role: "depart", at: "2026-09-16T14:30" },
+  { flightId: "b", role: "depart", at: "2026-09-16T09:00" },
+]).minutes, 7 * 60, "the first plane is the one you have to catch");
+
 // --- a point the walking network cannot reach falls back to a station ---
 // Real stops from the router, around Fukuoka Airport's published coordinate.
 const FUK_PT = { lat: 33.5859, lng: 130.4506 };
@@ -505,6 +536,21 @@ assert.equal(stops[2].arrive, 13 * 60 + 35, "after the last pin the clock runs o
 assert.equal(stops[0].pinned, true);
 assert.equal(stops[2].pinned, false, "a stop with no ticket is not pinned");
 // --- Fukuoka, the city the preview demo plans ---
+const KUKO = Object.fromEntries(FARES.cities.find(c => c.id === "fukuoka").lines[0]
+  .stations.map(s => [s.en, { lat: s.lat, lng: s.lng }]));
+const kuko = (a, b) => estimateFare(FARES, KUKO[a], KUKO[b],
+  [{ mode: "REGIONAL_RAIL", agency: "福岡市交通局", fromPt: KUKO[a], toPt: KUKO[b], seconds: 400 }]).amount;
+
+// The operator charges by its own track, and a straight line across the map is
+// a different number. Airport to Hakata is 2.8 km as the crow flies and 3.3 by
+// rail, which is the first fare zone against the second.
+assert.equal(kuko("Fukuoka Airport", "Hakata"), 260, "3.3 km by rail is the second zone");
+assert.equal(kuko("Hakata", "Tenjin"), 210, "2.5 km is the first");
+assert.equal(kuko("Fukuoka Airport", "Tenjin"), 260);
+assert.equal(kuko("Hakata", "Meinohama"), 300, "9.8 km is the third");
+assert.equal(kuko("Fukuoka Airport", "Meinohama"), 340, "end to end, 13.1 km, the fourth");
+assert.equal(kuko("Hakata", "Nishijin"), 260, "6.4 km still just inside the second");
+
 const FUKUOKA = { lat: 33.5904, lng: 130.4017 };
 assert.equal(fareCity(FARES, FUKUOKA).id, "fukuoka");
 assert.equal(estimateFare(FARES, FUKUOKA, null, [ride("SUBWAY", 2, "福岡市地下鉄")]).amount, 210,

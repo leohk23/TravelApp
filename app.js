@@ -1,11 +1,11 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, openHours, decodePolyline, bookingCost, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, openHours, decodePolyline, bookingCost, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v53';
+const BUILD = 'v54';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -186,6 +186,24 @@ function flightHop(a, b) {
   };
 }
 
+/**
+ * A day's legs as the plan should show them.
+ *
+ * A flight is not something a router answers: the booking already says how
+ * long it takes. Waiting for a recalculation to fill it in left "no route"
+ * printed across the middle of an arrival day, which is both wrong and the
+ * first thing you see.
+ */
+function dayLegs(d) {
+  const legs = { ...(d.legs || {}) };
+  for (const [from, to] of placePairs(d.items)) {
+    if (legs[from]) continue;
+    const hop = flightHop(d.items[from], d.items[to]);
+    if (hop) legs[from] = hop;
+  }
+  return legs;
+}
+
 /* ---------- routing ---------- */
 async function recalc() {
   const d = day();
@@ -261,6 +279,7 @@ function drawMap() {
   // so a pin and its row in the plan never disagree about which stop it is.
   const all = d.items.filter(isPlace);
   const places = mapPlaces(d.items);
+  const legs = dayLegs(d);
   if (!places.length) return;
 
   layer = L.layerGroup(places.map(p => {
@@ -282,7 +301,7 @@ function drawMap() {
   for (const [from, to] of placePairs(d.items)) {
     const a = d.items[from], b = d.items[to];
     if (!shown.has(a) || !shown.has(b)) continue;      // one end is off this map
-    const steps = d.legs?.[from]?.steps || [];
+    const steps = legs[from]?.steps || [];
     let any = false;
     for (const s of steps) {
       if (!s.shape) continue;
@@ -1287,9 +1306,11 @@ function renderPlan() {
   const ord = new Map();
   d.items.forEach((it, i) => { if (isPlace(it)) ord.set(i, ord.size + 1); });
 
-  const rows = scheduleDay(d.items, d.legs, d.start);
+  const rows = scheduleDay(d.items, dayLegs(d), d.start);
+  // Nothing on a departure day should run so late that you miss the plane.
+  const cutoff = flightCutoff(d.items, AIRPORT_BUFFER_MIN);
   for (const row of rows) {
-    list.append(row.type === 'item' ? itemRow(d, row, ord) : legRow(d, row));
+    list.append(row.type === 'item' ? itemRow(d, row, ord, cutoff) : legRow(d, row));
   }
   if (!d.items.length) {
     list.innerHTML = '<li class="empty">Use + to add a place or activity.</li>';
@@ -1359,12 +1380,12 @@ function renderDayBookings(d) {
   host.hidden = !flights.length;
 }
 
-function itemRow(d, row, ord) {
+function itemRow(d, row, ord, cutoff = null) {
   const it = d.items[row.i];
   const li = document.createElement('li');
   li.className = 'stop' + (row.place ? '' : ' note') + (it.flightId ? ' via-airport' : '') + (it.hotelId ? ' via-hotel' : '');
   const sub = it.notes || (row.place ? it.address : '') || '';
-  const warn = hoursWarning(d, it, row);
+  const warn = stopWarning(d, it, row, cutoff);
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
     <div class="marker">${row.place ? stopMark(it, ord.get(row.i)) : '•'}</div>
@@ -1377,7 +1398,7 @@ function itemRow(d, row, ord) {
       ${sub ? `<small>${it.notes ? '✎ ' : ''}${esc(sub)}</small>` : ''}
     </button>
     ${warn || fmtStay(it.stayMin ?? 60) ? `<div class="stop-tags">
-      ${warn ? `<span class="chip warn">${esc(warn)}</span>` : ''}
+      ${warn ? `<span class="chip warn" title="${esc(warn.title)}">${esc(warn.text)}</span>` : ''}
       ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}
     </div>` : ''}`;
 
@@ -1521,6 +1542,29 @@ function hoursWarning(d, it, row) {
   // Getting in and being thrown out are different problems, so they read
   // differently.
   return row.depart > window[1] ? `closes ${fmtTime(window[1])}` : null;
+}
+
+// Long enough to check a bag, clear security and find the gate, and the
+// number every airline prints on the ticket for an international flight.
+const AIRPORT_BUFFER_MIN = 120;
+
+/**
+ * What this stop should warn about, if anything.
+ *
+ * Missing the plane beats finding a museum shut, so the flight comes first.
+ * Only one chip: a row of them is a row nobody reads.
+ */
+function stopWarning(d, it, row, cutoff) {
+  // Only what happens before the gate has to fit. An arrival day also holds a
+  // departure - you left home that morning - and nothing after it is late.
+  if (cutoff && row.i < cutoff.before && row.depart > cutoff.minutes) {
+    return {
+      text: 'too close to the flight',
+      title: `Leave for the airport by ${fmtTime(cutoff.minutes)} to be there two hours before departure.`,
+    };
+  }
+  const hours = hoursWarning(d, it, row);
+  return hours ? { text: hours, title: '' } : null;
 }
 
 /**
@@ -1876,6 +1920,22 @@ function renderMoney() {
       : '<li class="empty">All square.</li>'}</ul>`;
 }
 
+/**
+ * A stop as the overview should read it.
+ *
+ * A hotel is already named in full, in both languages, on the Staying line
+ * just above — printing it again at each end of the day said the same thing
+ * three times. An airport is the opposite problem: HKG is a filing code, and
+ * what you want on a printed itinerary is the airport.
+ */
+function ovStop(it) {
+  if (it.hotelId) return '<span class="ov-name">🏨 Hotel</span>';
+  if (it.flightId) return `<span class="ov-name">${it.role === 'arrive' ? '🛬' : '🛫'} ${
+    esc(it.address || it.name || 'Airport')}</span>`;
+  return `<span class="ov-name">${esc(leadName(it) || '—')}${
+    altName(it) ? `<small>${esc(altName(it))}</small>` : ''}</span>`;
+}
+
 /* ---------- overview: the whole trip on one screen ---------- */
 const wkday = iso => iso
   ? new Date(`${iso}T00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
@@ -1905,7 +1965,7 @@ function renderOverview() {
   $('#ovDays').replaceChildren(...state.days.map((d, i) => {
     const stays = state.itinerary.filter(b => isStay(b.kind) && d.date && staysOn(b, d.date));
     const moves = state.itinerary.filter(b => !isStay(b.kind) && d.date && movesOn(b, d.date));
-    const rows = scheduleDay(d.items, d.legs, d.start);
+    const rows = scheduleDay(d.items, dayLegs(d), d.start);
     const travel = rows.reduce((s, r) => s + (r.type === 'leg' && r.min ? r.min : 0), 0);
 
     const li = document.createElement('li');
@@ -1932,8 +1992,7 @@ function renderOverview() {
       }).join('<br>')}</span></div>` : ''}
 
       ${d.items.length ? `<ol class="ovstops">${rows.filter(r => r.type === 'item').map(r => `
-        <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span><span class="ov-name">${esc(leadName(d.items[r.i]) || '—')}${
-          altName(d.items[r.i]) ? `<small>${esc(altName(d.items[r.i]))}</small>` : ''}</span></li>`
+        <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span>${ovStop(d.items[r.i])}</li>`
       ).join('')}</ol>` : '<div class="ovline dim">Nothing planned yet</div>'}`;
 
     li.onclick = () => { state.dayIdx = i; save(); render(); showTab('local'); };

@@ -282,7 +282,116 @@
           ]
         }
       ],
-      "urbanKm": 35
+      "urbanKm": 35,
+      "lines": [
+        {
+          "id": "fukuoka-kuko",
+          "label": "Kūkō Line",
+          "match": ["福岡市交通局", "fukuoka city subway", "fukuoka subway"],
+          "source": "Station kilometrage from Wikipedia (CC BY-SA). The fares are the operator's own published distance zones.",
+          "snapM": 400,
+          "steps": [
+            [3, 210],
+            [7, 260],
+            [11, 300],
+            [15, 340],
+            [999, 380]
+          ],
+          "stations": [
+            {
+              "name": "姪浜",
+              "en": "Meinohama",
+              "lat": 33.58371,
+              "lng": 130.3251,
+              "km": 0
+            },
+            {
+              "name": "室見",
+              "en": "Muromi",
+              "lat": 33.58091,
+              "lng": 130.34003,
+              "km": 1.5
+            },
+            {
+              "name": "藤崎",
+              "en": "Fujisaki",
+              "lat": 33.58136,
+              "lng": 130.34833,
+              "km": 2.3
+            },
+            {
+              "name": "西新",
+              "en": "Nishijin",
+              "lat": 33.58373,
+              "lng": 130.35947,
+              "km": 3.4
+            },
+            {
+              "name": "唐人町",
+              "en": "Tojinmachi",
+              "lat": 33.59022,
+              "lng": 130.37024,
+              "km": 4.6
+            },
+            {
+              "name": "大濠公園",
+              "en": "Ohorikoen",
+              "lat": 33.5901,
+              "lng": 130.37875,
+              "km": 5.4
+            },
+            {
+              "name": "赤坂",
+              "en": "Akasaka",
+              "lat": 33.58908,
+              "lng": 130.39037,
+              "km": 6.5
+            },
+            {
+              "name": "天神",
+              "en": "Tenjin",
+              "lat": 33.59126,
+              "lng": 130.39862,
+              "km": 7.3
+            },
+            {
+              "name": "中洲川端",
+              "en": "Nakasu-Kawabata",
+              "lat": 33.59473,
+              "lng": 130.40642,
+              "km": 8.1
+            },
+            {
+              "name": "祇園",
+              "en": "Gion",
+              "lat": 33.59434,
+              "lng": 130.41432,
+              "km": 9.1
+            },
+            {
+              "name": "博多",
+              "en": "Hakata",
+              "lat": 33.58978,
+              "lng": 130.42126,
+              "km": 9.8
+            },
+            {
+              "name": "東比恵",
+              "en": "Higashi-Hie",
+              "lat": 33.58983,
+              "lng": 130.43129,
+              "km": 11
+            },
+            {
+              "name": "福岡空港",
+              "en": "Fukuoka Airport",
+              "lat": 33.59732,
+              "lng": 130.44818,
+              "km": 13.1
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "singapore",
@@ -411,5 +520,6 @@
   ],
   "operators": "Where a city lists operators, each one charges separately and the journey pays the sum, which is how Tokyo actually works. Matching is case-insensitive substring on the agency name, first match wins, so put specific names before general ones.",
   "exact": "Where a city names an exact table, journeys on that operator are priced from it rather than guessed. Everything else still falls back to the steps above.",
-  "routes": "Named services priced as a whole. Urban distance bands are nonsense for a two-hour coach, so a journey longer than the city's urbanKm gets a named route fare or no estimate at all."
+  "routes": "Named services priced as a whole. Urban distance bands are nonsense for a two-hour coach, so a journey longer than the city's urbanKm gets a named route fare or no estimate at all.",
+  "lines": "Where a city gives a line its stations and their kilometrage, a journey between two of them is priced on distance along the track rather than a straight line across the map. Fukuoka Airport to Hakata is 2.8 km as the crow flies and 3.3 km by rail, which is the difference between the first fare zone and the second."
 }

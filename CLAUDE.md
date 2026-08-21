@@ -118,6 +118,14 @@ holding. A day stop's `flightId` names a **journey**, not a booking, and
 `findLeg()` resolves it. Flights used to be flat, one booking per direction,
 with the return carrying `cost: 0` because the fare had to go somewhere.
 
+`flightCutoff()` gives the latest a day can still be doing something and make
+its flight, as `{ minutes, before }`. The index is load-bearing: an arrival day
+also contains a departure — you left home that morning — and without it the
+first day of a trip warns about every stop on it. Only stops before that index
+are checked. `dayLegs()` fills in flight legs at render time, because a flight
+needs no router and waiting for a recalculation printed "no route" across the
+middle of an arrival day.
+
 A booking can be paid in another currency: `currency` plus a `rate` you type.
 Fetching a rate would be the wrong number — what matters is what your card was
 charged on the day, months before the trip. `bookingCost()` returns null when
@@ -213,6 +221,14 @@ Everything network-facing is in `providers.js`:
   the distance bands are meaningless, so a journey either matches a named route
   or gets **no estimate at all**. Pricing the two-hour Kawaguchiko coach as city
   metro produced 324 yen against a real 2200.
+- **Line kilometrage** (`lines` inside `data/fares.json`) — a metro charges by
+  its own track, and a straight line across the map is a different number.
+  Fukuoka Airport to Hakata is 2.8 km as the crow flies and 3.3 km by rail,
+  which is the first fare zone against the second. Where a city lists a line's
+  stations and their kilometrage, `railKm()` prices a step on the track instead.
+  Fukuoka's Kūkō Line is the one that has it: distances from Wikipedia
+  (CC BY-SA), fares from the operator's own published zones. Jorudan is not a
+  source for this — its page is a commercial search form, not a dataset.
 - **Airport index** (`data/airports.json`) — committed IATA lookup built by
   `tools/make-airports.mjs` from OurAirports. Photon indexes airport names but
   not codes, so "NRT" found nothing; Overpass could query the tag but its public
