@@ -401,7 +401,11 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
 }
 
 /* ---------- overview: the whole trip on one screen ---------- */
-.ov-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+/* The name is the widest thing on this screen and it was sharing a row with
+   the Print button. It takes the row to itself until there is room for both. */
+.ov-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+.ov-head > .ov-title { flex: 1 1 100%; }
+@media (min-width: 700px) { .ov-head > .ov-title { flex: 1 1 auto; } }
 .ov-head h2 { margin: 0; font-size: 22px; letter-spacing: -.015em; }
 .ov-head p { margin: 4px 0 0; color: var(--dim); font-size: 13px; }
 .overview-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
@@ -513,7 +517,11 @@ dialog[open] {
 .wiz-body label small { color: var(--dim); font-size: 12px; }
 
 /* ---------- trip days table ---------- */
-.daytable-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 12px; }
+/* flex: 1 1 auto with min-height: 0 let this collapse to nothing the moment
+   the dialog ran out of room, which is exactly what adding the hours line
+   above it did: every day vanished. The dialog already scrolls, so the table
+   takes its natural height and lets it. */
+.daytable-wrap { flex: 0 0 auto; padding: 0 12px; }
 .daytable { width: 100%; border-collapse: collapse; }
 .daytable td, .daytable th { padding: 3px 4px; text-align: left; vertical-align: middle; }
 .daytable tr.on { background: var(--accent-soft); }
@@ -870,13 +878,18 @@ main > section { position: relative; }
 
 /* The selected day's hours, under the calendar. In the table they left the
    city about eight characters to live in. */
-.dd-hours { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
-.dd-hours label { display: flex; gap: 8px; align-items: center; font-size: 13px; }
-.dd-hours input { min-height: var(--tap); width: 7rem; }
-.dd-hours small { flex-basis: 100%; color: var(--dim); font-size: 12px; }
+.dd-hours { gap: 8px; }
+.dd-hours-lbl { font-size: 13px; color: var(--dim); }
+.dd-hours-lbl b { color: var(--fg); }
+/* Two clock faces side by side. A 12-hour input is wide, so they share the
+   row equally rather than each claiming a fixed width and wrapping. */
+.dd-hours-row { display: flex; gap: 10px; align-items: center; }
+.dd-hours-row input { flex: 1 1 0; min-width: 0; min-height: var(--tap); }
+.dd-hours-row > span { color: var(--dim); font-size: 13px; flex: 0 0 auto; }
+.dd-hours small { color: var(--dim); font-size: 12px; }
 /* A dialog is a poor place to be squeezed, so a narrow screen scrolls the
    table sideways rather than crushing every field. */
-.daytable-wrap { overflow: auto; }
+.daytable-wrap { overflow-x: auto; }
 
 /* ---------- the party ---------- */
 .party { margin-bottom: 14px; }
@@ -900,3 +913,7 @@ main > section { position: relative; }
 .member .x:hover { color: var(--bad); background: transparent; }
 .party-add { display: flex; gap: 8px; }
 .party-add input { flex: 1; min-width: 0; }
+
+/* The one action in the header, so it keeps the accent the text button had. */
+button.icon.setup { color: var(--accent); }
+button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }

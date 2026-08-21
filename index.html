@@ -24,7 +24,9 @@
   <span id="env" hidden>preview</span>
   <span id="busy" hidden>working…</span>
   <span class="spacer"></span>
-  <button id="setupBtn" class="primary" title="Guided setup: cities, dates, who's coming">+ Plan a trip</button>
+  <button id="setupBtn" class="icon setup" type="button"
+          title="Plan a trip: cities, dates, who's coming"
+          aria-label="Plan a trip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7zm0 4a1 1 0 0 0-1 1v1h-1a1 1 0 0 0 0 2h1v1a1 1 0 0 0 2 0v-1h1a1 1 0 0 0 0-2h-1V7a1 1 0 0 0-1-1z"/></svg></button>
 </header>
 
 <nav class="ribbon" role="tablist">
@@ -220,9 +222,12 @@
   <div id="tripCal"></div>
 
   <div class="wiz-body dd-hours">
-    <label><span id="ddHoursDay">This day</span> runs
-      <input type="time" id="ddStart" aria-label="Day starts"></label>
-    <label>to <input type="time" id="ddEnd" aria-label="Day ends"></label>
+    <span class="dd-hours-lbl"><b id="ddHoursDay">This day</b> runs</span>
+    <span class="dd-hours-row">
+      <input type="time" id="ddStart" aria-label="Day starts">
+      <span>to</span>
+      <input type="time" id="ddEnd" aria-label="Day ends">
+    </span>
     <small>The start drives the transit lookups. The end just marks where the day should stop.</small>
   </div>
 
