@@ -516,6 +516,46 @@ export function openHours(spec, dayIdx) {
   // A day no rule mentions is shut, not unknown: that is what the tag means.
   return byDay[dayIdx] ?? [];
 }
+/**
+ * An encoded polyline back into [lat, lng] pairs.
+ *
+ * Google's format: each value is a delta from the last, zig-zag encoded into
+ * six-bit groups. `precision` is how many decimal places were kept — the
+ * usual is 5, but MOTIS says 7 and reading its lines at 5 puts them in the
+ * wrong hemisphere, so it is never assumed.
+ *
+ * Returns [] rather than throwing on anything malformed: a broken line on the
+ * map is a drawing problem, not a reason to lose the plan.
+ */
+export function decodePolyline(encoded, precision = 5) {
+  const s = String(encoded || '');
+  const factor = 10 ** precision;
+  const out = [];
+  let i = 0, lat = 0, lng = 0;
+  while (i < s.length) {
+    // Arithmetic, not bit shifts. At precision 7 a longitude of 130 degrees
+    // encodes to about 2.6 billion, which overflows the 32-bit signed integers
+    // JavaScript bitwise operators work in - Hakata came out in Georgia.
+    const delta = () => {
+      let result = 0, scale = 1, byte;
+      do {
+        if (i >= s.length) return null;
+        byte = s.charCodeAt(i++) - 63;
+        if (byte < 0 || byte > 63) return null;
+        result += (byte % 32) * scale;
+        scale *= 32;
+        if (scale > 2 ** 40) return null;        // no real delta is this big
+      } while (byte >= 32);
+      return result % 2 ? -(result + 1) / 2 : result / 2;
+    };
+    const dLat = delta(); if (dLat === null) return out;
+    const dLng = delta(); if (dLng === null) return out;
+    lat += dLat; lng += dLng;
+    out.push([lat / factor, lng / factor]);
+  }
+  return out;
+}
+
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;

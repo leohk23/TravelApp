@@ -1,4 +1,4 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, openHours, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, openHours, decodePolyline, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -238,8 +238,39 @@ function drawMap() {
       + (altName(p) ? `<br>${esc(altName(p))}` : '')
       + (p.address ? `<br><small>${esc(p.address)}</small>` : ''));
   })).addTo(map);
-  L.polyline(places.map(p => [p.lat, p.lng]), { weight: 3, opacity: 0.6 }).addTo(layer);
-  map.fitBounds(places.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 15 });
+  // The route as it is actually travelled, where the router gave us one.
+  // A straight line between two stops crosses whatever is in the way, which
+  // in Fukuoka means the line to Nokonoshima ran over the sea and the subway
+  // appeared to tunnel through the castle grounds.
+  const drawn = [];
+  const shown = new Set(places);
+  for (const [from, to] of placePairs(d.items)) {
+    const a = d.items[from], b = d.items[to];
+    if (!shown.has(a) || !shown.has(b)) continue;      // one end is off this map
+    const steps = d.legs?.[from]?.steps || [];
+    let any = false;
+    for (const s of steps) {
+      if (!s.shape) continue;
+      const line = decodePolyline(s.shape, s.shapePrecision ?? 5);
+      if (line.length < 2) continue;
+      any = true;
+      const walk = String(s.mode || '').toUpperCase() === 'WALK';
+      drawn.push(...line);
+      L.polyline(line, {
+        weight: walk ? 3 : 4,
+        opacity: walk ? 0.5 : 0.8,
+        dashArray: walk ? '4 6' : null,
+      }).addTo(layer);
+    }
+    // No shape, so say only what is certain: these two stops are connected.
+    if (!any) {
+      L.polyline([[a.lat, a.lng], [b.lat, b.lng]],
+        { weight: 2, opacity: 0.35, dashArray: '2 6' }).addTo(layer);
+    }
+  }
+
+  const bounds = [...places.map(p => [p.lat, p.lng]), ...drawn];
+  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
 }
 
 /* ---------- plan/map views and resizable split ---------- */
@@ -1112,8 +1143,10 @@ function itemRow(d, row, ord) {
       ${altName(it) ? `<small class="alt">${esc(altName(it))}</small>` : ''}
       ${sub ? `<small>${it.notes ? '✎ ' : ''}${esc(sub)}</small>` : ''}
     </button>
-    ${warn ? `<span class="chip warn">${esc(warn)}</span>` : ''}
-    ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}`;
+    ${warn || fmtStay(it.stayMin ?? 60) ? `<div class="stop-tags">
+      ${warn ? `<span class="chip warn">${esc(warn)}</span>` : ''}
+      ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}
+    </div>` : ''}`;
 
   li.querySelector('.what-btn').onclick = () => openActivity(row.i);
   // draggable only from the grip, so a tap on the row still opens the editor
@@ -1608,7 +1641,8 @@ function renderOverview() {
       ).join('<br>')}</span></div>` : ''}
 
       ${d.items.length ? `<ol class="ovstops">${rows.filter(r => r.type === 'item').map(r => `
-        <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span>${esc(leadName(d.items[r.i]) || '—')}</li>`
+        <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span><span class="ov-name">${esc(leadName(d.items[r.i]) || '—')}${
+          altName(d.items[r.i]) ? `<small>${esc(altName(d.items[r.i]))}</small>` : ''}</span></li>`
       ).join('')}</ol>` : '<div class="ovline dim">Nothing planned yet</div>'}`;
 
     li.onclick = () => { state.dayIdx = i; save(); render(); showTab('local'); };

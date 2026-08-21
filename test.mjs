@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours, decodePolyline } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -306,6 +306,32 @@ for (const c of FARES.cities) {
   }
 }
 
+// --- the route as it is actually travelled ---
+// Google's own example, at the precision everyone else uses.
+assert.deepEqual(decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@", 5),
+  [[38.5, -120.2], [40.7, -120.95], [43.252, -126.453]]);
+
+// A real leg from Transitous, which encodes at precision 7. This is the case
+// that broke: a longitude of 130 degrees at that precision is about 2.6
+// billion, which overflows the 32-bit integers JavaScript bitwise operators
+// work in, and the walk out of Hakata Station came out in Georgia.
+const HAKATA_WALK = "{tqt_SajqqvlA{qNaVT{S_mRkb@b@e_@l_b@ls@p`Qhe@tfSdo@??ufSeo@q`Qie@";
+const hakataWalk = decodePolyline(HAKATA_WALK, 7);
+assert.equal(hakataWalk.length, 11, "eleven points, as the router said");
+assert.ok(hakataWalk.every(([lat, lng]) => Math.abs(lat - 33.59) < 0.05 && Math.abs(lng - 130.42) < 0.05),
+  "every point of it is in Hakata: " + JSON.stringify(hakataWalk[0]));
+
+// Read at the wrong precision the same line is nowhere near, which is why the
+// precision travels with the shape rather than being assumed.
+assert.ok(Math.abs(decodePolyline(HAKATA_WALK, 5)[0][0] - 33.59) > 1,
+  "precision is not a detail");
+
+// A broken line is a drawing problem, never a reason to lose the plan.
+assert.deepEqual(decodePolyline("_p~iF~ps|U_ulL", 5), [[38.5, -120.2]],
+  "a truncated pair is dropped, the rest is kept");
+assert.deepEqual(decodePolyline("", 5), []);
+assert.deepEqual(decodePolyline(null, 7), []);
+assert.deepEqual(decodePolyline("!!!!", 5), [], "not an encoded line at all");
 // --- is it open when you get there ---
 // Monday is 0. Ranges come back as [openMinute, closeMinute].
 assert.deepEqual(openHours("Mo-Su 09:30-21:30", 0), [[570, 1290]], "Fukuoka Tower, every day");

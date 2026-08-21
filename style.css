@@ -238,11 +238,19 @@ main > section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 }
 
 /* ---------- local travel stops ---------- */
+/* A grid, not a row: the chips used to sit beside the name and squeeze it to
+   "K…". They belong on a second line under it, aligned to the same column,
+   because a stop's name and address are the whole point of the row. */
 .stop {
-  display: flex; gap: 12px; align-items: center;
+  display: grid; grid-template-columns: auto auto auto minmax(0, 1fr);
+  gap: 2px 12px; align-items: center;
   background: var(--card); border: 1px solid var(--line);
   border-radius: var(--r); padding: 10px 12px; box-shadow: var(--shadow);
   transition: border-color var(--fade), box-shadow var(--fade), opacity var(--fade);
+}
+.stop-tags {
+  grid-column: 4; display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 2px 0 0 8px;
 }
 .stop.dragging { opacity: .35; }
 .stop.over { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -739,14 +747,16 @@ main > section { position: relative; }
 
 /* ---------- day plan rows: display only, tap to edit ---------- */
 .what-btn {
-  flex: 1; min-width: 0; justify-content: flex-start; text-align: left;
+  min-width: 0; display: flex; justify-content: flex-start; text-align: left;
   flex-direction: column; align-items: flex-start; gap: 1px;
   background: transparent; border-color: transparent; padding: 4px 8px;
 }
 .what-btn:hover { background: var(--sunk); }
 .what-btn b { font-weight: 650; }
+/* Wrapped, never clipped. A stop called "Kyushu National Museum" that reads
+   "K…" tells you nothing, and neither does an address ending in "Ishi…". */
 .what-btn b, .what-btn small {
-  display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block; width: 100%; white-space: normal; overflow-wrap: break-word;
 }
 .what-btn small { color: var(--dim); font-size: 12.5px; }
 .stop.note .what-btn b { font-weight: 500; font-style: italic; }
@@ -938,3 +948,7 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 /* A stop you would arrive at to find shut. It sits with the stay chip rather
    than in the name, because it is about the timing, not the place. */
 .stop .chip.warn { flex: 0 0 auto; align-self: center; }
+
+/* Both names in the overview too, the local one under the leading one. */
+.ovstops .ov-name { min-width: 0; }
+.ovstops .ov-name small { display: block; color: var(--dim); font-size: 12.5px; }

@@ -274,6 +274,10 @@ export async function route(from, to, when, signal) {
       toPt: l.to?.lat != null ? { lat: l.to.lat, lng: l.to.lon } : null,
       seconds: l.duration ?? 0,
       metres: l.distance != null ? Math.round(l.distance) : null,
+      // Kept encoded rather than decoded: a leg is a few hundred points, and
+      // this whole object is persisted to localStorage on every recalc.
+      shape: l.legGeometry?.points || null,
+      shapePrecision: l.legGeometry?.precision ?? 5,
       stops: l.intermediateStops?.length ?? null,
       startTime: l.startTime || '', endTime: l.endTime || '',
     })),

@@ -2,6 +2,10 @@
 
 Deliberately not built yet. Each line says what would trigger building it.
 
+Removed once built, so everything here is still outstanding. Gone since the
+last sweep: opening-hours warnings, real route shapes on the map, per-operator
+and exact fares, and carrying a member's expenses through a rename.
+
 ## Parked (built, then removed on purpose)
 
 - **Export / import a trip as JSON.** Worked fine; pulled to keep the UI focused
@@ -22,10 +26,10 @@ Deliberately not built yet. Each line says what would trigger building it.
   recalculates only the selected day, leaving other days with routes for the old
   timetable. Store a small input signature with `legs`, or clear affected days.
   *Build before date-shifting a trip that already has routed days.*
-- **Keep expenses attached when party names change.** Renaming a member can
-  leave the old name in `payer`, and fractional splits can leave a one-cent
-  remainder. Map old names to new names and settle in integer minor units.
-  *Build before settling a real shared trip.*
+- **Settle up in whole cents.** Renaming a member now carries their expenses
+  with them, but an even split of an odd amount still leaves a fraction of a
+  cent adrift in `settleUp`. Work in integer minor units and give the
+  remainder to someone. *Build before settling a real shared trip.*
 - **Defensive state loading.** Add a schema version and a tested
   `normalizeState()` so malformed or older localStorage cannot stop the app from
   opening. *Build when the next stored-data migration is needed.*
@@ -39,21 +43,16 @@ Deliberately not built yet. Each line says what would trigger building it.
 
 ## Likely next
 
-- **Opening hours.** Stops are scheduled blind; nothing stops the planner
-  putting a museum at 21:00. OSM carries an `opening_hours` tag that Photon does
-  not return, so this needs a separate Overpass lookup per POI, plus a warning
-  badge in the timeline. *Build when a real trip gets planned into a closed door.*
-- **Real route shapes on the map.** Currently straight lines between markers.
-  Transitous returns an encoded polyline per leg that Leaflet can draw directly.
-  *Build when the straight lines start misleading you about where you go.*
 - **Pin the last stop too.** Optimise pins only the first stop. Days that end
   back at the hotel want both ends pinned — `optimizeOrder` already takes a
   flag, it just needs `pinLast`. *Build when a day ends far from bed.*
 - **Automatic transit fares.** Checked directly against the API: Transitous
   supports GTFS-Fares but `debug.fares` is 0 in Hong Kong, Tokyo, Berlin and
   Chicago, because almost no agency publishes fares in its feed. Only some
-  return `agencyFareUrl`, a link to their fare page. Fares are therefore
-  entered once and remembered per journey. `route()` already carries a `fare`
+  return `agencyFareUrl`, a link to their fare page. What exists instead is
+  `data/mtr-fares.json` (exact, from MTR open data) and `data/fares.json`
+  (hand-written bands per city and operator), with a fare you enter yourself
+  remembered per journey and beating both. `route()` already carries a `fare`
   field for the day a feed provides one. *Build when a destination you use
   actually publishes fares, or if you decide a paid routing provider is worth
   it — Google Directions does return fares.*
