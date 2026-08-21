@@ -1,5 +1,5 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
-import { search, searchCity, searchAirports, geocode, otherName, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, openHours, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
@@ -506,7 +506,7 @@ async function biasPoint(d = day()) {
  * `bias` is async so it can geocode the day's city on first use.
  * `find` overrides the default place search (city search uses this).
  */
-function attachSearch(input, { onPick, onOtherName, bias, tags, clearOnPick = false, find }) {
+function attachSearch(input, { onPick, onDetails, bias, tags, clearOnPick = false, find }) {
   const list = document.createElement('ul');
   list.className = 'ac-list';
   list.hidden = true;
@@ -577,13 +577,19 @@ function attachSearch(input, { onPick, onOtherName, bias, tags, clearOnPick = fa
     if (clearOnPick) input.value = '';
     hits = []; hide();
 
-    // The name on the signs, fetched only for a place actually being added.
-    // Deliberately after onPick: the dialog fills straight away and this
-    // arrives when it arrives, or never, without holding anything up.
-    if (!onOtherName || !h.osmId || !asked) return;
-    otherName(asked.q, { near: asked.near, tags }, h.osmId)
-      .then(name => { if (name && name !== h.name) onOtherName(h, name); })
-      .catch(() => {});
+    // What the search result did not carry: the name on the signs, and the
+    // opening hours. Fetched only for a place actually being added, and
+    // deliberately after onPick, so the dialog fills straight away and these
+    // arrive when they arrive, or never, without holding anything up.
+    if (!onDetails || !h.osmId || !asked) return;
+    Promise.allSettled([
+      otherName(asked.q, { near: asked.near, tags }, h.osmId),
+      openingHours(h.osmId),
+    ]).then(([n, o]) => {
+      const localName = n.status === 'fulfilled' && n.value !== h.name ? n.value : null;
+      const hours = o.status === 'fulfilled' ? o.value : null;
+      if (localName || hours) onDetails(h, { localName, hours });
+    });
   };
 
   input.oninput = () => {
@@ -1094,6 +1100,7 @@ function itemRow(d, row, ord) {
   const li = document.createElement('li');
   li.className = 'stop' + (row.place ? '' : ' note') + (it.flightId ? ' via-airport' : '') + (it.hotelId ? ' via-hotel' : '');
   const sub = it.notes || (row.place ? it.address : '') || '';
+  const warn = hoursWarning(d, it, row);
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
     <div class="marker">${row.place ? stopMark(it, ord.get(row.i)) : '•'}</div>
@@ -1105,6 +1112,7 @@ function itemRow(d, row, ord) {
       ${altName(it) ? `<small class="alt">${esc(altName(it))}</small>` : ''}
       ${sub ? `<small>${it.notes ? '✎ ' : ''}${esc(sub)}</small>` : ''}
     </button>
+    ${warn ? `<span class="chip warn">${esc(warn)}</span>` : ''}
     ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}`;
 
   li.querySelector('.what-btn').onclick = () => openActivity(row.i);
@@ -1195,13 +1203,49 @@ let actIdx = null;
 let actNew = false;
 let actPicked = null;
 
+/** Monday is 0, matching openHours(). getDay() starts the week on Sunday. */
+const weekdayOf = date => (new Date(`${date}T00:00`).getDay() + 6) % 7;
+
+/**
+ * How this stop is marked when its opening hours are a problem.
+ *
+ * Only ever a warning. Hours are missing for most places and unreadable for
+ * some, and a stop that says nothing is the normal case rather than a
+ * reassurance that it is open.
+ */
+function hoursWarning(d, it, row) {
+  if (!row.place || !d.date || !it.hours) return null;
+  const open = openHours(it.hours, weekdayOf(d.date));
+  if (!open) return null;                       // nothing recorded, or not readable
+  if (!open.length) return 'closed all day';
+  const window = open.find(([from, to]) => row.arrive >= from && row.arrive < to);
+  if (!window) return 'closed when you arrive';
+  // Getting in and being thrown out are different problems, so they read
+  // differently.
+  return row.depart > window[1] ? `closes ${fmtTime(window[1])}` : null;
+}
+
+/**
+ * The opening hours on the activity dialog, verbatim.
+ *
+ * Shown as OpenStreetMap wrote them. Rephrasing would hide the parts this app
+ * cannot read, and those are exactly the parts worth reading yourself.
+ */
+function showActHours() {
+  const el = $('#actHours');
+  const spec = actPicked?.hours;
+  el.hidden = !spec;
+  el.textContent = spec ? `Opening hours  ${spec}` : '';
+}
+
 function openActivity(i) {
   actNew = i == null;
   actIdx = i;
   const it = actNew ? { name: '', stayMin: 60 } : day().items[i];
   if (!it) return;
   actPicked = isPlace(it)
-    ? { name: it.name, address: it.address, lat: it.lat, lng: it.lng, localName: it.localName }
+    ? { name: it.name, address: it.address, lat: it.lat, lng: it.lng,
+        localName: it.localName, hours: it.hours }
     : null;
   $('#actTitle').textContent = actNew ? 'Add to this day' : (isPlace(it) ? 'Stop' : 'Activity');
   $('#actAddr').textContent = it.address || '';
@@ -1212,6 +1256,7 @@ function openActivity(i) {
   $('#actError').hidden = true;
   $('#actMin').value = it.stayMin ?? 60;
   $('#actNotes').value = it.notes || '';
+  showActHours();
   $('#actDelete').hidden = actNew;
   $('#actDlg').returnValue = '';
   $('#actDlg').showModal();
@@ -1233,6 +1278,8 @@ function commitActivity() {
     it.lng = actPicked.lng;
     if (actPicked.localName) it.localName = actPicked.localName;
     else delete it.localName;        // a different place, so not its name any more
+    if (actPicked.hours) it.hours = actPicked.hours;
+    else delete it.hours;
   }
   const notes = $('#actNotes').value.trim();
   if (notes) it.notes = notes; else delete it.notes;
@@ -1253,8 +1300,11 @@ attachSearch($('#actName'), {
     $('#actAddr').textContent = h.label;
     $('#actAddr').hidden = !h.label;
   },
-  onOtherName: (h, name) => {
-    if (actPicked?.osmId === h.osmId) actPicked.localName = name;
+  onDetails: (h, extra) => {
+    if (actPicked?.osmId !== h.osmId) return;
+    if (extra.localName) actPicked.localName = extra.localName;
+    if (extra.hours) actPicked.hours = extra.hours;
+    showActHours();
   },
 });
 

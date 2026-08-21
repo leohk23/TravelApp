@@ -92,7 +92,7 @@ One object in `localStorage['travelapp']`, written by `save()`:
   days: [{
     date, city, timeZone, start, end,        // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00", "22:00"
     cityPt,                                  // cached geocode of city, for search bias
-    items: [{ name, localName?, address?, lat?, lng?, stayMin, at?, atTz?, hotelId?, flightId?, role? }],
+    items: [{ name, localName?, address?, hours?, lat?, lng?, stayMin, at?, atTz?, hotelId?, flightId?, role? }],
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id
@@ -152,8 +152,15 @@ Everything network-facing is in `providers.js`:
 
 - **Photon** (`photon.komoot.io`) — type-ahead search. Always pass a `near`
   bias for local places; airport search is global and filtered to aerodromes.
+  It answers in **one language at a time**, and `lang=en` is what lets an
+  English query reach a Japanese name at all — so a place keeps `localName`
+  too, fetched by replaying the query with no `lang` and matching on OSM id.
+  Matching on position instead lands on a tree in the grounds of Dazaifu
+  Tenmangu. Both extra lookups (this and the hours) happen **once, when a
+  place is added** — never while typing.
 - **Nominatim** (`nominatim.openstreetmap.org`) — resolves a typed hotel or city
-  when it was not selected from search.
+  when it was not selected from search, and `lookup` with `extratags=1` returns
+  the `opening_hours` tag for an OSM id, which Photon does not carry.
 - **Transitous** (`api.transitous.org`, a MOTIS instance) — transit routing.
   Returns a pareto set, not a sorted list, so `route()` picks earliest arrival.
   No fare data, and its `one-to-many` matrix endpoint rejected every coordinate
@@ -201,6 +208,13 @@ Everything network-facing is in `providers.js`:
 Nominatim and Transitous are volunteer-run. Debounce, cache, throttle. Both
 return **403 to Node's default User-Agent**, so `providers.js` cannot be
 exercised from a Node script — verify it in a browser.
+
+`openHours()` reads OSM's `opening_hours` tag for one weekday and answers with
+the day's open windows, `[]` for shut all day, or **null when the tag says
+something it cannot read** — public holidays, seasons, sunset, week numbers.
+That third answer has to stay distinct from `[]`, or a closed day and an
+unparsed one look the same. A stop only ever warns; it never reassures, since
+most places have no hours recorded at all.
 
 Because no free transit matrix exists, `optimizeDay()` builds its cost matrix
 from `haversine()` distance and only then fetches real legs for the chosen

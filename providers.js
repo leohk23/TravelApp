@@ -10,6 +10,7 @@
 
 const PHOTON = 'https://photon.komoot.io/api/';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+const NOMINATIM_LOOKUP = 'https://nominatim.openstreetmap.org/lookup';
 const MOTIS = 'https://api.transitous.org/api/v1/plan';
 const MOTIS_STOPS = 'https://api.transitous.org/api/v1/map/stops';
 const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast';
@@ -141,6 +142,26 @@ export async function otherName(q, opts, osmId, signal) {
   const hits = await search(q, { ...opts, lang: null }, signal).catch(() => []);
   const hit = hits.find(h => h.osmId === osmId);
   return hit?.name || null;
+}
+
+/**
+ * The opening hours OpenStreetMap holds for a place, as the raw tag.
+ *
+ * Photon does not carry the tag, but Nominatim will hand back any tag for an
+ * OSM id, which is what the search result gave us. One request, made once for
+ * a place being added, never while typing.
+ *
+ * Most places have nothing recorded, so null is the normal answer.
+ */
+export async function openingHours(osmId, signal) {
+  const m = /^([NWR])(\d+)$/.exec(String(osmId || ''));
+  if (!m) return null;
+  const u = new URL(NOMINATIM_LOOKUP);
+  u.searchParams.set('osm_ids', m[1] + m[2]);
+  u.searchParams.set('format', 'jsonv2');
+  u.searchParams.set('extratags', '1');
+  const hits = await getJSON(u, signal).catch(() => []);
+  return hits[0]?.extratags?.opening_hours || null;
 }
 
 /** Resolve a single typed/pasted address. Nominatim ranks better than Photon here. */

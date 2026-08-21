@@ -130,7 +130,8 @@
           "lat": 33.5896,
           "lng": 130.4113,
           "stayMin": 90,
-          "localName": "キャナルシティ博多"
+          "localName": "キャナルシティ博多",
+          "hours": "Mo-Su 10:00-21:00"
         },
         {
           "name": "Kushida Shrine",
@@ -138,7 +139,8 @@
           "lat": 33.5934,
           "lng": 130.4106,
           "stayMin": 30,
-          "localName": "櫛田神社"
+          "localName": "櫛田神社",
+          "hours": "Mo-Su 04:00-22:00"
         },
         {
           "name": "Nakasu yatai stalls",
@@ -199,7 +201,8 @@
           "lat": 33.5843,
           "lng": 130.3806,
           "stayMin": 90,
-          "localName": "福岡市美術館"
+          "localName": "福岡市美術館",
+          "hours": "Tu-Su 09:30-17:30; Mo off"
         },
         {
           "name": "Tenjin",
@@ -248,7 +251,8 @@
           "lat": 33.5215,
           "lng": 130.5348,
           "stayMin": 75,
-          "localName": "太宰府天満宮"
+          "localName": "太宰府天満宮",
+          "hours": "Mo-Su 06:30-19:00"
         },
         {
           "name": "Kyushu National Museum",
@@ -256,7 +260,8 @@
           "lat": 33.5185,
           "lng": 130.5399,
           "stayMin": 90,
-          "localName": "九州国立博物館"
+          "localName": "九州国立博物館",
+          "hours": "Tu-Su 09:30-17:00; Mo off"
         },
         {
           "name": "Starbucks Dazaifu Omotesando",
@@ -264,7 +269,8 @@
           "lat": 33.5199,
           "lng": 130.5335,
           "stayMin": 30,
-          "localName": "スターバックス 太宰府天満宮表参道店"
+          "localName": "スターバックス 太宰府天満宮表参道店",
+          "hours": "Mo-Su 08:00-20:00"
         },
         {
           "name": "Hotel Nikko Fukuoka",
@@ -309,7 +315,8 @@
           "lat": 33.6303,
           "lng": 130.3122,
           "stayMin": 150,
-          "localName": "のこのしまアイランドパーク"
+          "localName": "のこのしまアイランドパーク",
+          "hours": "Mo-Sa 09:00-17:30; Su 09:00-18:30"
         },
         {
           "name": "Fukuoka Tower",
@@ -317,7 +324,8 @@
           "lat": 33.5934,
           "lng": 130.3514,
           "stayMin": 60,
-          "localName": "福岡タワー"
+          "localName": "福岡タワー",
+          "hours": "Mo-Su 09:30-21:30"
         },
         {
           "name": "Hotel Nikko Fukuoka",
@@ -354,7 +362,8 @@
           "lat": 33.5931,
           "lng": 130.4143,
           "stayMin": 30,
-          "localName": "東長寺"
+          "localName": "東長寺",
+          "hours": "Mo-Su 09:00-17:00"
         },
         {
           "name": "Hakata Station",

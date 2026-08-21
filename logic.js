@@ -446,6 +446,76 @@ export function mapPlaces(items, awayKm = 200) {
   return places.filter(p => !p.flightId || kmBetween(mid, p) <= awayKm);
 }
 
+const OSM_DAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
+
+/** "Mo-We,Fr" -> the set {0,1,2,4}. null when it is not a plain weekday list. */
+function weekdaySet(token) {
+  const out = new Set();
+  for (const part of token.split(',')) {
+    const m = /^([a-z]{2})(?:-([a-z]{2}))?$/.exec(part.trim().toLowerCase());
+    if (!m) return null;
+    const from = OSM_DAYS.indexOf(m[1]);
+    if (from < 0) return null;
+    if (!m[2]) { out.add(from); continue; }
+    const to = OSM_DAYS.indexOf(m[2]);
+    if (to < 0) return null;
+    for (let i = 0; i < 7; i++) {          // Sa-Mo wraps round the week
+      const d = (from + i) % 7;
+      out.add(d);
+      if (d === to) break;
+    }
+  }
+  return out;
+}
+
+/**
+ * When a place is open on a given weekday, read from OpenStreetMap's
+ * `opening_hours` tag. Monday is 0.
+ *
+ * Returns a list of [openMinute, closeMinute] for that day, empty when it is
+ * closed all day, and **null when the tag says something this cannot read**.
+ * That third answer is the important one: the real grammar has public
+ * holidays, school terms, month ranges, sunset and week numbers in it, and a
+ * planner that guessed at those would tell you a museum is open on the one
+ * day of the year it is not. Saying nothing is the honest answer.
+ *
+ * A day no rule mentions is closed, which is what the tag means: "Mo-Fr
+ * 09:00-18:00" is shut at the weekend.
+ */
+export function openHours(spec, dayIdx) {
+  const raw = String(spec || '').trim();
+  if (!raw || !(dayIdx >= 0 && dayIdx < 7)) return null;
+  if (/^24\/7$/i.test(raw)) return [[0, 1440]];
+  // Everything the simple reading below would get wrong.
+  if (/[[\]{}"|+]|\bPH\b|\bSH\b|sunrise|sunset|dawn|dusk|easter|\bweek\b|\d{4}|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec/i.test(raw)) return null;
+
+  const byDay = Array.from({ length: 7 }, () => null);   // null = no rule said
+  for (const rule of raw.split(';')) {
+    const text = rule.trim();
+    if (!text) continue;
+    const m = /^([A-Za-z,\- ]*?)\s*((?:\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*,?\s*)+|off|closed)$/i
+      .exec(text);
+    if (!m) return null;
+
+    const days = m[1].trim() ? weekdaySet(m[1]) : new Set([0, 1, 2, 3, 4, 5, 6]);
+    if (!days) return null;
+
+    const body = m[2].trim().toLowerCase();
+    let spans = [];
+    if (body !== 'off' && body !== 'closed') {
+      for (const span of body.split(',')) {
+        const [a, b] = span.split('-').map(v => clockOf(v.trim()));
+        if (a == null || b == null) return null;
+        // Past midnight: open until the end of the day, and this planner does
+        // not carry the rest over into tomorrow.
+        spans.push([a, b > a ? b : 1440]);
+      }
+    }
+    for (const d of days) byDay[d] = spans;
+  }
+  // A day no rule mentions is shut, not unknown: that is what the tag means.
+  return byDay[dayIdx] ?? [];
+}
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;

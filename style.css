@@ -771,13 +771,17 @@ main > section { position: relative; }
 .about-copy p { margin: 0; line-height: 1.6; }
 
 /* ---------- facts, chips and tags that replaced dot chains ---------- */
-#ovMeta { display: flex; flex-wrap: wrap; gap: 6px 20px; }
-/* flex: 0 0 auto is load-bearing. Without it the date range shrank below its
-   own text, and because it also refuses to wrap it painted straight over the
-   city and the party beside it. Now it keeps its width and takes a new line. */
-.fact { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 7px; font-size: 13px; }
+/* Inline flow rather than flex, on purpose. As flex items these facts ended
+   up narrower than their own text, so the city was laid on top of the date
+   range. An inline-block advances the line by its own width, so two of them
+   cannot occupy the same space however the sizing is resolved. */
+#ovMeta { display: block; }
+.fact { display: inline-block; margin: 0 20px 6px 0; font-size: 13px; vertical-align: top; }
+.fact:last-child { margin-right: 0; }
+/* A date range reads badly split across two lines; a long party list does not. */
 .fact.when { white-space: nowrap; }
 .fact .k {
+  margin-right: 7px;
   font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
   color: var(--dim);
 }
@@ -927,3 +931,10 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 /* The same place as the signs write it. Kept distinct from the address line
    below it, which is greyer and smaller. */
 .stop .what-btn small.alt { color: var(--fg); opacity: .8; font-size: 13px; }
+
+/* Opening hours as the tag writes them, under the place field. */
+.act-hours { color: var(--fg); opacity: .85; }
+
+/* A stop you would arrive at to find shut. It sits with the stay chip rather
+   than in the name, because it is about the timing, not the place. */
+.stop .chip.warn { flex: 0 0 auto; align-self: center; }

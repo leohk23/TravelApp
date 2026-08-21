@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -306,6 +306,33 @@ for (const c of FARES.cities) {
   }
 }
 
+// --- is it open when you get there ---
+// Monday is 0. Ranges come back as [openMinute, closeMinute].
+assert.deepEqual(openHours("Mo-Su 09:30-21:30", 0), [[570, 1290]], "Fukuoka Tower, every day");
+assert.deepEqual(openHours("Mo-Fr 09:00-12:00,13:00-18:00", 0), [[540, 720], [780, 1080]],
+  "a place that shuts for lunch has two windows");
+assert.deepEqual(openHours("24/7", 3), [[0, 1440]]);
+
+// A day no rule mentions is shut. This is the whole point of the tag.
+assert.deepEqual(openHours("Mo-Fr 09:00-18:00", 5), [], "Saturday is not in Mo-Fr");
+assert.deepEqual(openHours("Tu-Su 09:30-17:00; Mo off", 0), [], "the museum Monday");
+assert.deepEqual(openHours("Tu-Su 09:30-17:00; Mo off", 1), [[570, 1020]]);
+assert.deepEqual(openHours("Sa-Mo 10:00-16:00", 6), [[600, 960]], "Sa-Mo wraps past Sunday");
+assert.deepEqual(openHours("Sa-Mo 10:00-16:00", 3), [], "and Thursday is outside it");
+
+// Open past midnight stops at the end of the day rather than leaking into it.
+assert.deepEqual(openHours("Mo-Su 11:00-02:00", 0), [[660, 1440]]);
+
+// null is "the tag says something I cannot read", and it has to stay distinct
+// from [] or a closed day and an unreadable one would look the same.
+assert.equal(openHours("Mo-Fr 09:00-18:00; PH off", 0), null, "public holidays");
+assert.equal(openHours("Apr-Oct 09:00-18:00", 0), null, "a season");
+assert.equal(openHours("Mo-Su 09:00-sunset", 0), null, "sunset moves");
+assert.equal(openHours("Mo[1] 09:00-18:00", 0), null, "the first Monday of the month");
+assert.equal(openHours("nonsense here", 0), null);
+assert.equal(openHours("", 0), null, "most places have no hours recorded at all");
+assert.equal(openHours(null, 0), null);
+assert.equal(openHours("24/7", 9), null, "there is no day nine");
 // --- reading a clock face off an input ---
 assert.equal(clockOf("22:00"), 22 * 60);
 assert.equal(clockOf("9:05"), 9 * 60 + 5, "a browser may hand back one digit for the hour");
