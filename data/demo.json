@@ -15,56 +15,60 @@
   "fares": {},
   "itinerary": [
     {
-      "id": "demo-flight-out",
+      "id": "demo-flight",
       "kind": "Flight",
-      "ref": "CX 510",
-      "from": "HKG",
-      "to": "FUK",
-      "start": "2026-09-12T08:20",
-      "end": "2026-09-12T13:05",
+      "ref": "Cathay Pacific return",
       "conf": "K7QW2M",
-      "cost": 156000,
+      "cost": 7800,
+      "currency": "HKD",
+      "rate": 19.5,
       "notes": "Three seats together, 32A to 32C. Checked bags 23 kg each.",
-      "fromPt": {
-        "lat": 22.308,
-        "lng": 113.9185,
-        "name": "Hong Kong International Airport",
-        "address": "Chek Lap Kok, HK"
-      },
-      "toPt": {
-        "lat": 33.5859,
-        "lng": 130.4506,
-        "name": "Fukuoka Airport",
-        "address": "Hakata, Fukuoka, JP"
-      },
-      "fromTz": "Asia/Hong_Kong",
-      "toTz": "Asia/Tokyo"
-    },
-    {
-      "id": "demo-flight-back",
-      "kind": "Flight",
-      "ref": "CX 511",
-      "from": "FUK",
-      "to": "HKG",
-      "start": "2026-09-16T14:30",
-      "end": "2026-09-16T17:20",
-      "conf": "K7QW2M",
-      "cost": 0,
-      "notes": "Return half of the same booking, so it carries no separate cost.",
-      "fromPt": {
-        "lat": 33.5859,
-        "lng": 130.4506,
-        "name": "Fukuoka Airport",
-        "address": "Hakata, Fukuoka, JP"
-      },
-      "toPt": {
-        "lat": 22.308,
-        "lng": 113.9185,
-        "name": "Hong Kong International Airport",
-        "address": "Chek Lap Kok, HK"
-      },
-      "fromTz": "Asia/Tokyo",
-      "toTz": "Asia/Hong_Kong"
+      "legs": [
+        {
+          "id": "demo-flight-out",
+          "ref": "CX 510",
+          "from": "HKG",
+          "to": "FUK",
+          "fromPt": {
+            "lat": 22.308,
+            "lng": 113.9185,
+            "name": "Hong Kong International Airport",
+            "address": "Chek Lap Kok, HK"
+          },
+          "toPt": {
+            "lat": 33.5859,
+            "lng": 130.4506,
+            "name": "Fukuoka Airport",
+            "address": "Hakata, Fukuoka, JP"
+          },
+          "fromTz": "Asia/Hong_Kong",
+          "toTz": "Asia/Tokyo",
+          "start": "2026-09-12T08:20",
+          "end": "2026-09-12T13:05"
+        },
+        {
+          "id": "demo-flight-back",
+          "ref": "CX 511",
+          "from": "FUK",
+          "to": "HKG",
+          "fromPt": {
+            "lat": 33.5859,
+            "lng": 130.4506,
+            "name": "Fukuoka Airport",
+            "address": "Hakata, Fukuoka, JP"
+          },
+          "toPt": {
+            "lat": 22.308,
+            "lng": 113.9185,
+            "name": "Hong Kong International Airport",
+            "address": "Chek Lap Kok, HK"
+          },
+          "fromTz": "Asia/Tokyo",
+          "toTz": "Asia/Hong_Kong",
+          "start": "2026-09-16T14:30",
+          "end": "2026-09-16T17:20"
+        }
+      ]
     },
     {
       "id": "demo-hotel",
@@ -401,15 +405,15 @@
   ],
   "expenses": [
     {
-      "desc": "Flight, CX 510, HKG → FUK",
-      "amount": 156000,
+      "desc": "Flight, Cathay Pacific return, HKG → FUK, FUK → HKG",
+      "amount": 152100,
       "payer": "Me",
       "sharedBy": [
         "Me",
         "Ada",
         "Ken"
       ],
-      "src": "demo-flight-out"
+      "src": "demo-flight"
     },
     {
       "desc": "Hotel, Hotel Nikko Fukuoka, Hakata-ekimae, Hakata-ku, Fukuoka, Japan",

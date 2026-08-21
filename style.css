@@ -985,3 +985,34 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 @media (pointer: coarse) {
   input, select, textarea { font-size: 16px; }
 }
+
+/* ---------- a booking's journeys ---------- */
+/* A return flight is one booking with two journeys, so each gets its own block
+   rather than its own card. The rule between them says "same booking, next
+   leg" without a heading having to say it. */
+.leg-block + .leg-block { border-top: 1px dashed var(--line); padding-top: 10px; margin-top: 2px; }
+.leg-head { gap: 8px; }
+.leg-head .f-legref { flex: 0 1 14ch; font-weight: 650; }
+.leg-head .leg-x { margin-left: auto; }
+.add-leg {
+  background: transparent; border-style: dashed; color: var(--dim);
+  font-size: 13px; min-height: 34px; width: 100%;
+}
+.add-leg:hover { color: var(--accent); border-color: var(--accent); }
+
+/* Paid in, and what it came to. The rate is what your card was charged at, so
+   it is typed rather than looked up - a rate fetched today is a different
+   number from the one you actually paid. */
+.cost-lbl, .rate-lbl { gap: 6px; }
+.cost-lbl .f-cur { min-width: 7ch; padding: 8px 4px; }
+.cost-lbl .f-cost { width: 9ch; }
+.rate-lbl .f-rate { width: 8ch; }
+.converted { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--dim); }
+
+/* Notes open in a dialog: they run to a couple of sentences and the row had
+   about eight characters to offer them. */
+.booking .f-notes { width: 34px; padding: 0; flex: 0 0 auto; }
+.booking .f-notes svg { width: 17px; height: 17px; fill: currentColor; }
+.booking .f-notes.on { color: var(--accent); }
+
+#askArea { width: 100%; resize: vertical; min-height: 5rem; padding: 8px 11px; }

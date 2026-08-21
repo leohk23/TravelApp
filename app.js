@@ -1,11 +1,11 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, openHours, decodePolyline, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, openHours, decodePolyline, bookingCost, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v51';
+const BUILD = 'v52';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -25,6 +25,19 @@ for (const d of state.days) {          // days carried `pois` before free-form i
   delete d.pois;                       // dead once items exists, either way
   d.items ||= [];
   delete d.seeded;                     // replaced by linked hotel-origin items
+}
+// A return flight is one booking with one confirmation number and two
+// journeys. Flights used to be flat, one booking per direction, with the
+// return carrying cost 0 because the fare had to go somewhere. The first leg
+// keeps the booking's own id, so day stops that already point at it still do.
+for (const b of state.itinerary || []) {
+  if (b.kind !== 'Flight' || b.legs) continue;
+  b.legs = [{
+    id: b.id, ref: b.ref, from: b.from, to: b.to,
+    fromPt: b.fromPt, toPt: b.toPt, fromTz: b.fromTz, toTz: b.toTz,
+    start: b.start, end: b.end,
+  }];
+  for (const k of ['ref', 'from', 'to', 'fromPt', 'toPt', 'fromTz', 'toTz', 'start', 'end']) delete b[k];
 }
 // Move old defaults to the compact-map default; leave custom ratios alone.
 if (state.split === 0.42 || state.split === 0.6) state.split = 0.72;
@@ -79,14 +92,18 @@ function ask({ title, body = '', confirm = 'Confirm', danger = false }) {
 }
 
 /** Modal single-field prompt. Resolves null if dismissed. */
-function askText({ title, body = '', label, value = '', type = 'text', confirm = 'Save' }) {
+function askText({ title, body = '', label, value = '', type = 'text', confirm = 'Save', multiline = false }) {
   $('#askTitle').textContent = title;
   $('#askBody').textContent = body;
   $('#askBody').hidden = !body;
   $('#askInputWrap').hidden = false;
   $('#askLabel').firstChild.textContent = label;
-  const input = $('#askInput');
-  input.type = type;
+  // Notes on a booking run to a couple of sentences - a gate number, what the
+  // deposit covers - and a one-line box makes you scroll to read your own words.
+  const input = multiline ? $('#askArea') : $('#askInput');
+  $('#askInput').hidden = multiline;
+  $('#askArea').hidden = !multiline;
+  if (!multiline) input.type = type;
   input.value = value;
   const ok = $('#askOk');
   ok.textContent = confirm;
@@ -95,7 +112,7 @@ function askText({ title, body = '', label, value = '', type = 'text', confirm =
   dlg.returnValue = '';
   dlg.showModal();
   input.focus();
-  input.select();
+  input.select?.();
   return new Promise(res => {
     askResolve = () => res(dlg.returnValue === 'ok' ? input.value : null);
   });
@@ -156,7 +173,7 @@ function pinnedInstant(it, dayTz) {
 function flightHop(a, b) {
   if (!a?.flightId || a.flightId !== b?.flightId) return null;
   if (a.role !== 'depart' || b.role !== 'arrive') return null;
-  const f = state.itinerary.find(x => x.id === a.flightId);
+  const f = findLeg(a.flightId);
   if (!f) return null;
   return {
     seconds: flightSeconds(f.start, f.end, f.fromTz, f.toTz),
@@ -413,13 +430,15 @@ function flightStops(d) {
   const out = [];
   for (const b of state.itinerary) {
     if (b.kind !== 'Flight') continue;
-    // Only airports picked from the list carry coordinates, and without those
-    // there is nothing to route to.
-    if (dateOf(b.start) === d.date && b.fromPt) {
-      out.push({ at: b.start, tz: b.fromTz || '', role: 'depart', pt: b.fromPt, label: b.from, flightId: b.id });
-    }
-    if (dateOf(b.end) === d.date && b.toPt) {
-      out.push({ at: b.end, tz: b.toTz || '', role: 'arrive', pt: b.toPt, label: b.to, flightId: b.id });
+    for (const j of journeys(b)) {
+      // Only airports picked from the list carry coordinates, and without
+      // those there is nothing to route to.
+      if (dateOf(j.start) === d.date && j.fromPt) {
+        out.push({ at: j.start, tz: j.fromTz || '', role: 'depart', pt: j.fromPt, label: j.from, flightId: j.id });
+      }
+      if (dateOf(j.end) === d.date && j.toPt) {
+        out.push({ at: j.end, tz: j.toTz || '', role: 'arrive', pt: j.toPt, label: j.to, flightId: j.id });
+      }
     }
   }
   return out.sort((x, y) => String(x.at).localeCompare(String(y.at)));
@@ -764,17 +783,40 @@ const ICON = { Flight: '✈', Train: '🚆', Bus: '🚌', Ferry: '⛴', Car: '�
 const BILL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12a1 1 0 0 1 1 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 0 1 1-1zm2 5v2h8V7H8zm0 4v2h8v-2H8z"/></svg>';
 const BILLED_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12a1 1 0 0 1 1 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 0 1 1-1zm9.3 5.3L11 11.6 8.7 9.3 7.3 10.7l3.7 3.7 5.7-5.7-1.4-1.4z"/></svg>';
 const isStay = k => k === 'Hotel';
+
+/**
+ * The journeys a booking contains.
+ *
+ * A flight can be a return: one confirmation number, one payment, two
+ * journeys. Everything else is a single journey and is its own, so callers
+ * never have to ask which kind they are holding.
+ */
+const journeys = b => (b.kind === 'Flight' ? (b.legs || (b.legs = [])) : [b]);
+
+/** The journey of this booking that happens on that date, if any. */
+const legOn = (b, date) => journeys(b).find(j =>
+  dateOf(j.start) === date || (b.kind === 'Flight' && dateOf(j.end) === date)) || null;
+
+/** When a booking first moves, for sorting a mixed itinerary by time. */
+const startOf = b => journeys(b).map(j => j.start).filter(Boolean).sort()[0] || '';
+
+/** The journey a day stop was derived from, wherever in the itinerary it lives. */
+function findLeg(id) {
+  for (const b of state.itinerary) {
+    for (const j of journeys(b)) if (j.id === id) return j;
+  }
+  return null;
+}
 const dateOf = dt => (dt || '').slice(0, 10);
 
 // A stay covers every night from check-in through check-out morning.
 const staysOn = (b, d) => isStay(b.kind) && b.start && dateOf(b.start) <= d && d <= dateOf(b.end || b.start);
-const movesOn = (b, d) => !isStay(b.kind)
-  && (dateOf(b.start) === d || (b.kind === 'Flight' && dateOf(b.end) === d));
+const movesOn = (b, d) => !isStay(b.kind) && legOn(b, d) != null;
 
-function movementPhase(b, date) {
+function movementPhase(b, j, date) {
   if (b.kind !== 'Flight') return b.kind;
-  const departs = dateOf(b.start) === date;
-  const arrives = dateOf(b.end) === date;
+  const departs = dateOf(j.start) === date;
+  const arrives = dateOf(j.end) === date;
   if (departs && arrives) return 'Flight';
   return departs ? 'Departing flight' : 'Arriving flight';
 }
@@ -783,15 +825,19 @@ function movementPhase(b, date) {
  * When a movement happens on this day, tagged with the end it happens at.
  * "at 08:20" on a flight leaves the reader asking whose 08:20 it is.
  */
-const movementTime = (b, date) => {
-  const departing = dateOf(b.start) === date;
-  const t = timeOf(departing ? b.start : b.end);
-  const code = b.kind === 'Flight' ? (departing ? b.from : b.to) : '';
+const movementTime = (b, j, date) => {
+  const departing = dateOf(j.start) === date;
+  const t = timeOf(departing ? j.start : j.end);
+  const code = b.kind === 'Flight' ? (departing ? j.from : j.to) : '';
   return t && code ? `${t} ${code}` : t;
 };
 
-const newBooking = (kind, start = '') =>
-  ({ id: crypto.randomUUID(), kind, ref: '', from: '', to: '', start, end: '', conf: '', cost: 0, notes: '' });
+const newLeg = (start = '') =>
+  ({ id: crypto.randomUUID(), ref: '', from: '', to: '', start, end: '' });
+
+const newBooking = (kind, start = '') => (kind === 'Flight'
+  ? { id: crypto.randomUUID(), kind, ref: '', conf: '', cost: 0, notes: '', legs: [newLeg(start)] }
+  : { id: crypto.randomUUID(), kind, ref: '', from: '', to: '', start, end: '', conf: '', cost: 0, notes: '' });
 
 /** Nights for a stay; nothing for transport, whose local times cross time zones. */
 const timeOf = dt => (dt && dt.length > 10 ? dt.slice(11, 16) : '');
@@ -799,16 +845,16 @@ const timeOf = dt => (dt && dt.length > 10 ? dt.slice(11, 16) : '');
 /** A zone read as a place: "Asia/Hong_Kong" -> "Hong Kong". */
 const zoneLabel = tz => String(tz || '').split('/').pop().replace(/_/g, ' ');
 
-function spanLabel(b) {
-  if (!b.start || !b.end) return '';
+function spanLabel(b, j = b) {
+  if (!j.start || !j.end) return '';
   if (isStay(b.kind)) {
     // Compare dates only: a stay may carry no time at all.
-    const nights = Math.round((parseISO(dateOf(b.end)) - parseISO(dateOf(b.start))) / dayMs);
+    const nights = Math.round((parseISO(dateOf(j.end)) - parseISO(dateOf(j.start))) / dayMs);
     return nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : '';
   }
   // A flight's two times are on two clocks, so the gap between them is not
   // the flight. Say how long you are actually in the air.
-  const secs = b.kind === 'Flight' ? flightSeconds(b.start, b.end, b.fromTz, b.toTz) : null;
+  const secs = b.kind === 'Flight' ? flightSeconds(j.start, j.end, j.fromTz, j.toTz) : null;
   return secs ? `${fmtDur(secs)} in the air` : '';
 }
 
@@ -828,97 +874,125 @@ function stayLabel(b) {
  * of the same fact. What the card adds instead is the time in the air, which
  * is the number you cannot get by subtracting the two.
  */
-function journeyLabel(b) {
-  if (!b.start) return 'Set depart and arrive';
+function journeyLabel(j) {
+  if (!j.start) return 'Set depart and arrive';
   const end = dt => fmtDayLabel(dt) + (timeOf(dt) ? ` ${timeOf(dt)}` : '');
-  return `${end(b.start)}  →  ${b.end ? end(b.end) : '?'}`;
+  return `${end(j.start)}  →  ${j.end ? end(j.end) : '?'}`;
 }
 
 function bookingCard(b) {
   const stay = isStay(b.kind);
+  const flight = b.kind === 'Flight';
   const cfg = cfgFor(b.kind);
   const billed = state.expenses.some(e => e.src === b.id);
   const orphan = !onSomeDay(b);
+  const legs = journeys(b);
+  const currency = b.currency || state.currency;
+  const foreign = currency !== state.currency;
+  const converted = bookingCost(b, state.currency);
+
   const li = document.createElement('li');
   li.className = 'booking' + (stay ? ' is-stay' : '');
   li.dataset.bid = b.id;
+
+  // One journey row per leg. A flight can be a return, and then the whole card
+  // is one booking: one confirmation number, one payment, two journeys.
+  const legRows = legs.map((j, n) => `
+    <div class="leg-block"${flight ? ` data-leg="${esc(j.id)}"` : ''}>
+      ${flight ? `<div class="brow leg-head">
+        <input class="f-legref" value="${esc(j.ref || '')}" placeholder="${esc(cfg.ref)}">
+        ${legs.length > 1 ? `<button class="leg-x x" type="button" title="Remove this flight">✕</button>` : ''}
+      </div>` : ''}
+      <div class="brow${flight ? ' flight-route' : ''}">
+        ${flight
+          ? `<span class="ac grow"><input class="f-from" value="${esc(j.from || '')}" placeholder="Search departure airport…" autocomplete="off"></span>`
+          : `<input class="f-from grow" value="${esc(j.from || '')}" placeholder="${esc(cfg.from)}">`}
+        ${stay ? '' : `<span class="arrow">→</span>${flight
+          ? `<span class="ac grow"><input class="f-to" value="${esc(j.to || '')}" placeholder="Search arrival airport…" autocomplete="off"></span>`
+          : `<input class="f-to grow" value="${esc(j.to || '')}" placeholder="${esc(cfg.to)}">`}`}
+        ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button>' : ''}
+      </div>
+      <div class="brow">
+        <button class="daterange grow" type="button">${esc(stay ? stayLabel(b) : journeyLabel(j))}</button>
+        <small class="span">${esc(spanLabel(b, j))}</small>
+      </div>
+    </div>`).join('');
+
   li.innerHTML = `
     <div class="brow head">
       <select class="f-kind" aria-label="Type">${KINDS.map(k =>
         `<option value="${k}"${k === b.kind ? ' selected' : ''}>${ICON[k]} ${k}</option>`).join('')}</select>
       ${stay
         ? `<span class="ac grow"><input class="f-ref" value="${esc(b.ref || '')}" placeholder="Search a hotel…" autocomplete="off"></span>`
-        : `<input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="${esc(cfg.ref)}">`}
+        : `<input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="${esc(flight ? 'Airline or booking name' : cfg.ref)}">`}
       ${orphan ? '<span class="chip warn" title="This booking is not on any day of the trip">off-trip</span>' : ''}
       <span class="spacer"></span>
       <button class="x" type="button" title="Remove">✕</button>
-      <button class="bill icon${billed ? ' on' : ''}" type="button"${+b.cost > 0 ? '' : ' disabled'}
+      <button class="bill icon${billed ? ' on' : ''}" type="button"${converted > 0 ? '' : ' disabled'}
         title="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}"
         aria-label="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}"
         aria-pressed="${billed}">${billed ? `${BILLED_SVG}` : `${BILL_SVG}`}</button>
     </div>
 
-    <div class="brow${b.kind === 'Flight' ? ' flight-route' : ''}">
-      ${b.kind === 'Flight'
-        ? `<span class="ac grow"><input class="f-from" value="${esc(b.from || '')}" placeholder="Search departure airport…" autocomplete="off"></span>`
-        : `<input class="f-from grow" value="${esc(b.from || '')}" placeholder="${esc(cfg.from)}">`}
-      ${stay ? '' : `<span class="arrow">→</span>${b.kind === 'Flight'
-        ? `<span class="ac grow"><input class="f-to" value="${esc(b.to || '')}" placeholder="Search arrival airport…" autocomplete="off"></span>`
-        : `<input class="f-to grow" value="${esc(b.to || '')}" placeholder="${esc(cfg.to)}">`}`}
-      ${stay ? '<button class="mapit" title="Open in OpenStreetMap">map</button>' : ''}
-    </div>
-
-    <div class="brow">
-      <button class="daterange grow" type="button">${esc(stay ? stayLabel(b) : journeyLabel(b))}</button>
-      <small class="span">${esc(spanLabel(b))}</small>
-    </div>
+    ${legRows}
+    ${flight ? `<div class="brow"><button class="add-leg" type="button">+ Add a return or onward flight</button></div>` : ''}
 
     <div class="brow">
       <label>${esc(cfg.conf)}<input class="f-conf" value="${esc(b.conf || '')}" placeholder="optional"></label>
-      <label>${esc(state.currency)}<input type="number" class="f-cost" step="0.01" min="0" size="8" value="${b.cost || ''}"></label>
-      <input class="f-notes grow" value="${esc(b.notes || '')}" placeholder="${esc(cfg.notes)}">
+      <label class="cost-lbl">Paid
+        <select class="f-cur" aria-label="Currency paid in">${currencyOptions(currency)}</select>
+        <input type="number" class="f-cost" step="0.01" min="0" size="8" value="${b.cost || ''}">
+      </label>
+      ${foreign ? `<label class="rate-lbl" title="What one ${esc(currency)} cost you in ${esc(state.currency)}">Rate
+        <input type="number" class="f-rate" step="0.0001" min="0" size="7" value="${b.rate || ''}"
+          placeholder="${esc(state.currency)} per ${esc(currency)}"></label>` : ''}
+      ${foreign ? (converted === null
+        ? '<span class="chip warn">Rate needed to total this</span>'
+        : `<span class="converted">= ${esc(fmtMoney(converted, state.currency))}</span>`) : ''}
+      <span class="spacer"></span>
+      <button class="f-notes icon${b.notes ? ' on' : ''}" type="button"
+        title="${b.notes ? esc(b.notes) : esc(cfg.notes)}"
+        aria-label="Notes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm8 1.5V9h4.5L13 4.5zM7 12v2h10v-2H7zm0 4v2h7v-2H7z"/></svg></button>
     </div>`;
 
   // Plain text fields only save; anything affecting grouping or derived text redraws.
   const bind = (sel, key, redraw) => {
     const el = li.querySelector(sel);
     if (el) el.onchange = e => {
-      b[key] = key === 'cost' ? (+e.target.value || 0) : e.target.value;
+      b[key] = key === 'cost' || key === 'rate' ? (+e.target.value || 0) : e.target.value;
       save();
       if (redraw) render();
     };
   };
   bind('.f-kind', 'kind', true);
   bind('.f-ref', 'ref');
-  if (b.kind !== 'Flight') {
-    bind('.f-from', 'from');
-    bind('.f-to', 'to');
-  }
-
-  li.querySelector('.daterange')?.addEventListener('click', async () => {
-    const res = await pickRange({
-      title: b.ref || (stay ? 'Hotel dates' : `${b.kind} times`),
-      range: b.start ? [dateOf(b.start), dateOf(b.end || b.start)] : null,
-      t1: timeOf(b.start),
-      t2: timeOf(b.end),
-      mode: stay ? 'stay' : 'journey',
-      ends: b.kind === 'Flight' ? [b.from, b.to] : null,
-    });
-    if (!res) return;
-    // Times are optional: without one the value stays date-only, which every
-    // day-matching helper already handles because they all slice to 10 chars.
-    b.start = res.start ? res.start + (res.t1 ? `T${res.t1}` : '') : '';
-    b.end = res.end ? res.end + (res.t2 ? `T${res.t2}` : '') : '';
-    save(); render();
-  });
   bind('.f-conf', 'conf');
   bind('.f-cost', 'cost', true);
-  bind('.f-notes', 'notes');
+  bind('.f-rate', 'rate', true);
+
+  li.querySelector('.f-cur').onchange = e => {
+    b.currency = e.target.value;
+    if (b.currency === state.currency) delete b.rate;   // nothing to convert
+    save(); render();
+  };
+
+  li.querySelector('.f-notes').onclick = async () => {
+    const text = await askText({
+      title: `Notes on ${b.ref || legs[0]?.ref || b.kind}`,
+      label: 'Notes', value: b.notes || '', multiline: true,
+      body: cfg.notes,
+    });
+    if (text === null) return;
+    if (text.trim()) b.notes = text.trim(); else delete b.notes;
+    save(); render();
+  };
 
   li.querySelector('.x').onclick = async () => {
     const ok = await ask({
-      title: `Remove ${b.ref || b.kind}?`,
-      body: billed ? 'Its expense entry is removed too.' : '',
+      title: `Remove ${b.ref || legs[0]?.ref || b.kind}?`,
+      body: [billed ? 'Its expense entry is removed too.' : '',
+        legs.length > 1 ? `All ${legs.length} journeys on this booking go with it.` : '']
+        .filter(Boolean).join(' '),
       confirm: 'Remove', danger: true,
     });
     if (!ok) return;
@@ -929,68 +1003,129 @@ function bookingCard(b) {
 
   li.querySelector('.bill').onclick = () => {
     if (billed) state.expenses = state.expenses.filter(e => e.src !== b.id);
-    else state.expenses.push({
-      desc: [b.kind, b.ref, b.from && b.to ? `${b.from} → ${b.to}` : b.from].filter(Boolean).join(', '),
-      amount: +b.cost, payer: state.members[0], sharedBy: [...state.members], src: b.id,
-    });
+    else {
+      const amount = bookingCost(b, state.currency);
+      if (amount === null) return toast('Set the rate first, so this can be counted in ' + state.currency + '.');
+      const route = legs.map(j => [j.from, j.to].filter(Boolean).join(' → ')).filter(Boolean).join(', ');
+      state.expenses.push({
+        desc: [b.kind, b.ref || legs.map(j => j.ref).filter(Boolean).join(' and '), route]
+          .filter(Boolean).join(', '),
+        amount, payer: state.members[0], sharedBy: [...state.members], src: b.id,
+      });
+    }
     save(); render();
   };
 
-  if (stay) attachSearch(li.querySelector('.f-ref'), {
-    bias: biasPoint,
-    tags: STAY_TAGS,
-    onPick: h => {
-      // Fills the name, address and coordinates at once, so the map and Day-plan
-      // origin never have to geocode a selected hotel again.
-      b.ref = h.name; b.from = h.label; b.lat = h.lat; b.lng = h.lng;
-      save(); render();
-    },
+  li.querySelector('.add-leg')?.addEventListener('click', () => {
+    const last = legs[legs.length - 1];
+    // A return starts where the last one landed, which is nearly always right
+    // and always easier to correct than to type.
+    const back = newLeg();
+    if (last) {
+      back.from = last.to; back.to = last.from;
+      back.fromPt = last.toPt; back.toPt = last.fromPt;
+      back.fromTz = last.toTz; back.toTz = last.fromTz;
+    }
+    b.legs.push(back);
+    save(); render();
   });
+
+  // Per-leg wiring. Each journey block owns its own fields.
+  li.querySelectorAll('.leg-block').forEach((block, n) => {
+    const j = legs[n];
+    if (!j) return;
+
+    block.querySelector('.f-legref')?.addEventListener('change', e => {
+      j.ref = e.target.value; save(); render();
+    });
+
+    block.querySelector('.leg-x')?.addEventListener('click', async () => {
+      const ok = await ask({
+        title: `Remove ${j.ref || 'this flight'}?`,
+        body: 'The rest of the booking stays.', confirm: 'Remove', danger: true,
+      });
+      if (!ok) return;
+      b.legs = b.legs.filter(x => x.id !== j.id);
+      save(); render();
+    });
+
+    block.querySelector('.daterange')?.addEventListener('click', async () => {
+      const res = await pickRange({
+        title: j.ref || b.ref || (stay ? 'Hotel dates' : `${b.kind} times`),
+        range: j.start ? [dateOf(j.start), dateOf(j.end || j.start)] : null,
+        t1: timeOf(j.start),
+        t2: timeOf(j.end),
+        mode: stay ? 'stay' : 'journey',
+        ends: flight ? [j.from, j.to] : null,
+      });
+      if (!res) return;
+      // Times are optional: without one the value stays date-only, which every
+      // day-matching helper already handles because they all slice to 10 chars.
+      j.start = res.start ? res.start + (res.t1 ? `T${res.t1}` : '') : '';
+      j.end = res.end ? res.end + (res.t2 ? `T${res.t2}` : '') : '';
+      save(); render();
+    });
+
+    if (stay) {
+      attachSearch(block.querySelector('.f-from'), { bias: biasPoint, tags: STAY_TAGS, onPick: () => {} });
+    }
+
+    if (flight) {
+      for (const [sel, key] of [['.f-from', 'from'], ['.f-to', 'to']]) {
+        const input = block.querySelector(sel);
+        const pointKey = `${key}Pt`;
+        input.onchange = e => {
+          if (e.target.value !== j[key]) delete j[pointKey];
+          j[key] = e.target.value;
+          save();
+        };
+        attachSearch(input, {
+          find: searchAirports,
+          onPick: h => {
+            const shown = h.code || h.name;      // "NRT" beats "Narita International Airport"
+            input.value = shown;
+            j[key] = shown;
+            j[pointKey] = { lat: h.lat, lng: h.lng, name: h.name, address: h.label };
+            save();
+            // The card wants to say how long the flight takes, and that needs
+            // the zone at each end. Asked for on the pick rather than waiting
+            // for the first recalculation on the Day plan.
+            timeZoneAt(h)
+              .then(tz => { j[`${key}Tz`] = tz; save(); renderItinerary(); })
+              .catch(() => {});
+          },
+        });
+      }
+    } else if (!stay) {
+      block.querySelector('.f-from').onchange = e => { j.from = e.target.value; save(); };
+      block.querySelector('.f-to').onchange = e => { j.to = e.target.value; save(); };
+    }
+  });
+
   if (stay) {
+    attachSearch(li.querySelector('.f-ref'), {
+      bias: biasPoint,
+      tags: STAY_TAGS,
+      onPick: h => {
+        // Fills the name, address and coordinates at once, so the map and
+        // Day-plan origin never have to geocode a selected hotel again.
+        b.ref = h.name; b.from = h.label; b.lat = h.lat; b.lng = h.lng;
+        save(); render();
+      },
+    });
     const address = li.querySelector('.f-from');
     address.onchange = e => {
       if (e.target.value !== b.from) { delete b.lat; delete b.lng; }
       b.from = e.target.value;
       save();
     };
+    li.querySelector('.mapit')?.addEventListener('click', () => {
+      const url = b.lat != null
+        ? `https://www.openstreetmap.org/?mlat=${b.lat}&mlon=${b.lng}#map=17/${b.lat}/${b.lng}`
+        : `https://www.openstreetmap.org/search?query=${encodeURIComponent(b.from || b.ref)}`;
+      if (b.lat != null || b.from || b.ref) window.open(url, '_blank', 'noopener');
+    });
   }
-
-  if (b.kind === 'Flight') {
-    const airportPicker = (sel, key) => {
-      const input = li.querySelector(sel);
-      const pointKey = `${key}Pt`;
-      input.onchange = e => {
-        if (e.target.value !== b[key]) delete b[pointKey];
-        b[key] = e.target.value;
-        save();
-      };
-      attachSearch(input, {
-        find: searchAirports,
-        onPick: h => {
-          const shown = h.code || h.name;      // "NRT" beats "Narita International Airport"
-          input.value = shown;
-          b[key] = shown;
-          b[pointKey] = { lat: h.lat, lng: h.lng, name: h.name, address: h.label };
-          save();
-          // The card wants to say how long the flight takes, and that needs the
-          // zone at each end. Asked for on the pick rather than waiting for the
-          // first recalculation on the Day plan.
-          timeZoneAt(h)
-            .then(tz => { b[`${key}Tz`] = tz; save(); renderItinerary(); })
-            .catch(() => {});
-        },
-      });
-    };
-    airportPicker('.f-from', 'from');
-    airportPicker('.f-to', 'to');
-  }
-
-  li.querySelector('.mapit')?.addEventListener('click', () => {
-    const url = b.lat != null
-      ? `https://www.openstreetmap.org/?mlat=${b.lat}&mlon=${b.lng}#map=17/${b.lat}/${b.lng}`
-      : `https://www.openstreetmap.org/search?query=${encodeURIComponent(b.from || b.ref)}`;
-    if (b.lat != null || b.from || b.ref) window.open(url, '_blank', 'noopener');
-  });
 
   return li;
 }
@@ -1010,7 +1145,8 @@ const fmtDayFull = dt => (dt
     { weekday: 'long', day: 'numeric', month: 'long' })
   : '');
 
-const haystack = b => [b.kind, b.ref, b.from, b.to, b.conf, b.notes]
+const haystack = b => [b.kind, b.ref, b.conf, b.notes,
+  ...journeys(b).flatMap(j => [j.ref, j.from, j.to])]
   .filter(Boolean).join(' ').toLowerCase();
 
 let itinQuery = '';
@@ -1024,7 +1160,7 @@ function renderItinerary() {
     btn.classList.toggle('on', btn.dataset.iv === view);
   }
 
-  state.itinerary.sort((a2, b2) => (a2.start || '~').localeCompare(b2.start || '~'));
+  state.itinerary.sort((a2, b2) => (startOf(a2) || '~').localeCompare(startOf(b2) || '~'));
 
   let shown = state.itinerary;
   if (view === 'stays') shown = shown.filter(b => isStay(b.kind));
@@ -1058,11 +1194,19 @@ function renderItinerary() {
     }
   }
 
-  const total = shown.reduce((s, b) => s + (+b.cost || 0), 0);
+  // A booking paid in another currency with no rate yet cannot be added up,
+  // and counting it as nothing would understate the trip. Counted separately.
+  let pending = 0;
+  const total = shown.reduce((s, b) => {
+    const c = bookingCost(b, state.currency);
+    if (c === null) { pending++; return s; }
+    return s + c;
+  }, 0);
   const all = state.itinerary.length;
   $('#bookTotal').innerHTML = all
     ? `<span class="count">${shown.length}${shown.length === all ? '' : ` of ${all}`} booking${all === 1 ? '' : 's'}</span>`
       + `<span class="money">${esc(fmtMoney(total, state.currency))}</span>`
+      + (pending ? `<span class="chip warn">${pending} needs a rate</span>` : '')
     : '';
 }
 
@@ -1134,28 +1278,32 @@ function renderPlan() {
 function renderDayBookings(d) {
   const host = $('#dayBookings');
   const onPlan = new Set(d.items.map(it => it.flightId).filter(Boolean));
-  const flights = d.date
-    ? state.itinerary.filter(b => b.kind === 'Flight' && movesOn(b, d.date) && !onPlan.has(b.id))
-    : [];
-  host.replaceChildren(...flights.map(b => {
-    const departs = dateOf(b.start) === d.date;
-    const arrives = dateOf(b.end) === d.date;
+  const flights = [];
+  for (const b of d.date ? state.itinerary.filter(x => x.kind === 'Flight') : []) {
+    for (const j of journeys(b)) {
+      if (onPlan.has(j.id)) continue;
+      if (dateOf(j.start) === d.date || dateOf(j.end) === d.date) flights.push([b, j]);
+    }
+  }
+  host.replaceChildren(...flights.map(([b, j]) => {
+    const departs = dateOf(j.start) === d.date;
+    const arrives = dateOf(j.end) === d.date;
     // Each time is local to its own airport, so each one says which.
     const at = (dt, code) => [timeOf(dt), code].filter(Boolean).join(' ');
     const time = departs && arrives
-      ? [at(b.start, b.from), at(b.end, b.to)].filter(Boolean).join(' → ')
-      : at(departs ? b.start : b.end, departs ? b.from : b.to);
+      ? [at(j.start, j.from), at(j.end, j.to)].filter(Boolean).join(' → ')
+      : at(departs ? j.start : j.end, departs ? j.from : j.to);
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'day-booking';
-    card.innerHTML = `<span class="day-booking-kind">${movementPhase(b, d.date)}</span>`
-      + `<b>${esc(b.ref || 'Flight')}</b>`
+    card.innerHTML = `<span class="day-booking-kind">${movementPhase(b, j, d.date)}</span>`
+      + `<b>${esc(j.ref || 'Flight')}</b>`
       + (time ? `<time>${esc(time)}</time>` : '')
       // The route is already in the time line once both codes are on it, so
       // what is worth the second row instead is how long the flight takes.
-      + (departs && arrives && b.from && b.to
-        ? (spanLabel(b) ? `<span class="day-booking-route">${esc(spanLabel(b))}</span>` : '')
-        : b.from || b.to ? `<span class="day-booking-route">${esc(b.from || '?')} → ${esc(b.to || '?')}</span>` : '');
+      + (departs && arrives && j.from && j.to
+        ? (spanLabel(b, j) ? `<span class="day-booking-route">${esc(spanLabel(b, j))}</span>` : '')
+        : j.from || j.to ? `<span class="day-booking-route">${esc(j.from || '?')} → ${esc(j.to || '?')}</span>` : '');
     card.onclick = () => {
       state.itinView = 'day';
       showTab('itinerary');
@@ -1567,6 +1715,14 @@ function legRow(d, row) {
 const CURRENCIES = ['HKD', 'JPY', 'GBP', 'EUR', 'USD', 'CNY', 'TWD', 'KRW', 'SGD',
   'THB', 'MYR', 'VND', 'PHP', 'IDR', 'INR', 'AUD', 'NZD', 'CAD', 'CHF', 'AED'];
 
+/** The currency picker markup, used by a booking card and the expenses tab alike. */
+function currencyOptions(selected) {
+  const codes = CURRENCIES.includes(selected) || !selected
+    ? CURRENCIES : [selected, ...CURRENCIES];
+  return codes.map(c =>
+    `<option value="${esc(c)}"${c === selected ? ' selected' : ''}>${esc(c)}</option>`).join('');
+}
+
 /** "Japanese Yen" where the browser knows it, the bare code where it does not. */
 const currencyName = code => {
   try {
@@ -1722,10 +1878,13 @@ function renderOverview() {
         `${esc(b.ref || 'Hotel')}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
       ).join('<br>')}</span></div>` : ''}
 
-      ${moves.length ? `<div class="ovline"><span class="k">Moving</span><span>${moves.map(b =>
-        `${esc(movementPhase(b, d.date))}: ${ICON[b.kind] || ''} ${esc(b.ref || b.kind)}${b.from || b.to ? ` ${esc(b.from)} → ${esc(b.to)}` : ''}${
-          movementTime(b, d.date) ? ` at ${esc(movementTime(b, d.date))}` : ''}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
-      ).join('<br>')}</span></div>` : ''}
+      ${moves.length ? `<div class="ovline"><span class="k">Moving</span><span>${moves.map(b => {
+        const j = legOn(b, d.date) || journeys(b)[0] || b;
+        return `${esc(movementPhase(b, j, d.date))}: ${ICON[b.kind] || ''} ${esc(j.ref || b.ref || b.kind)}${
+          j.from || j.to ? ` ${esc(j.from)} → ${esc(j.to)}` : ''}${
+          movementTime(b, j, d.date) ? ` at ${esc(movementTime(b, j, d.date))}` : ''}${
+          b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`;
+      }).join('<br>')}</span></div>` : ''}
 
       ${d.items.length ? `<ol class="ovstops">${rows.filter(r => r.type === 'item').map(r => `
         <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span><span class="ov-name">${esc(leadName(d.items[r.i]) || '—')}${

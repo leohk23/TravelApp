@@ -88,7 +88,11 @@ One object in `localStorage['travelapp']`, written by `save()`:
   name, currency, members: [name], tab,      // tab = which ribbon section is open
   dayIdx,                                    // which day tab is open
   mapView, split,                             // "split" | "map", plan-pane ratio
-  itinerary: [{ id, kind, ref, from, to, fromPt?, toPt?, fromTz?, toTz?, start, end, conf, cost, notes }],
+  itinerary: [{ id, kind, ref, conf, cost, currency?, rate?, notes,
+    // a flight carries journeys; every other kind is its own single journey
+    legs?: [{ id, ref, from, to, fromPt?, toPt?, fromTz?, toTz?, start, end }],
+    from?, to?, start?, end?, lat?, lng?                       // non-flight kinds
+  }],
   days: [{
     date, city, timeZone, start, end,        // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00", "22:00"
     cityPt,                                  // cached geocode of city, for search bias
@@ -106,6 +110,19 @@ from the clock. You start the day where you slept, except on the day you check
 in, when the hotel follows the flight that brings you to it. A departure day
 also ends in an arrival — the flight home — and treating that one as the
 flight that brings you here once started the last morning in Hong Kong.
+
+A **return flight is one booking**: one confirmation number, one payment, two
+journeys. `journeys(b)` hands back a flight's `legs` and, for every other
+kind, the booking itself — so nothing downstream has to ask which it is
+holding. A day stop's `flightId` names a **journey**, not a booking, and
+`findLeg()` resolves it. Flights used to be flat, one booking per direction,
+with the return carrying `cost: 0` because the fare had to go somewhere.
+
+A booking can be paid in another currency: `currency` plus a `rate` you type.
+Fetching a rate would be the wrong number — what matters is what your card was
+charged on the day, months before the trip. `bookingCost()` returns null when
+the currencies differ and no rate is set, which is deliberately not zero: the
+Itinerary total counts those separately rather than understating the trip.
 
 The hotel is added **again at the end** of every day you sleep there, so the
 last leg is the one back to your room. `sleepsOn()` decides: check-in night

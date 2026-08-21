@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours, decodePolyline } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, openHours, decodePolyline, bookingCost } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -306,6 +306,21 @@ for (const c of FARES.cities) {
   }
 }
 
+// --- a booking paid in another currency ---
+// Bookings get paid months ahead on a card, in whatever the airline charges.
+assert.equal(bookingCost({ cost: 96000 }, "JPY"), 96000, "no currency means the trip's own");
+assert.equal(bookingCost({ cost: 96000, currency: "JPY" }, "JPY"), 96000);
+assert.equal(bookingCost({ cost: 7800, currency: "HKD", rate: 19.5 }, "JPY"), 152100,
+  "the rate is what you were charged at, not what it is today");
+assert.equal(bookingCost({ cost: 7800, currency: "HKD" }, "JPY"), null,
+  "no rate yet is not the same as free, and a total must not count it as nothing");
+assert.equal(bookingCost({ cost: 0, currency: "HKD" }, "JPY"), 0,
+  "nothing paid needs no rate");
+assert.equal(bookingCost({}, "JPY"), 0);
+assert.equal(bookingCost(null, "JPY"), 0);
+assert.equal(bookingCost({ cost: 10, currency: "HKD", rate: 19.5 }, "JPY"), 195);
+assert.equal(bookingCost({ cost: 33.33, currency: "USD", rate: 7.81 }, "HKD"), 260.31,
+  "rounded to the cent, not left with a float tail");
 // --- the route as it is actually travelled ---
 // Google's own example, at the precision everyone else uses.
 assert.deepEqual(decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@", 5),
@@ -517,21 +532,28 @@ for (const d of DEMO.days) {
     assert.ok(it.name, "every demo stop needs a name");
     assert.equal(it.lat == null, it.lng == null, "a demo stop has half a coordinate: " + it.name);
     if (it.hotelId) assert.ok(bookingIds.has(it.hotelId), "demo stop links a missing hotel");
-    if (it.flightId) assert.ok(bookingIds.has(it.flightId), "demo stop links a missing flight");
   }
 }
 assert.ok(fareCity(FARES, DEMO.days[0].items.find(i => i.lat != null)),
   "the demo city needs a fare table, or the demo shows no fares at all");
+// A day stop points at one journey of a booking, not at the booking: a return
+// flight is one booking with one confirmation number and two journeys.
+const demoLegs = new Map(DEMO.itinerary
+  .flatMap(b => (b.kind === "Flight" ? b.legs : [b]).map(j => [j.id, j])));
 for (const day of DEMO.days) {
   for (const it of day.items) {
     if (!it.flightId) continue;
-    const b = DEMO.itinerary.find(x => x.id === it.flightId);
-    assert.equal(it.at, it.role === "arrive" ? b.end : b.start,
+    const j = demoLegs.get(it.flightId);
+    assert.ok(j, "a demo airport stop points at a journey that is not there");
+    assert.equal(it.at, it.role === "arrive" ? j.end : j.start,
       "a demo airport stop must be pinned to its own end of the flight");
-    assert.equal(it.atTz, it.role === "arrive" ? b.toTz : b.fromTz,
+    assert.equal(it.atTz, it.role === "arrive" ? j.toTz : j.fromTz,
       "and to the zone that end is in");
   }
 }
+assert.equal(DEMO.itinerary.filter(b => b.kind === "Flight").length, 1,
+  "the return is one booking, not two");
+assert.equal(DEMO.itinerary.find(b => b.kind === "Flight").legs.length, 2);
 
 // --- step times belong to the destination, not the device ---
 assert.equal(fmtInstant("2026-09-01T09:02:00Z", "Asia/Hong_Kong"), "17:02");

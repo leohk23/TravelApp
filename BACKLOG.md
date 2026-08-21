@@ -4,8 +4,8 @@ Deliberately not built yet. Each line says what would trigger building it.
 
 Removed once built, so everything here is still outstanding. Gone since the
 last sweep: opening-hours warnings, real route shapes on the map, reordering a
-day by touch, per-operator and exact fares, and carrying a member's expenses
-through a rename.
+day by touch, per-operator and exact fares, carrying a member's expenses through
+a rename, and booking costs in a foreign currency.
 
 ## Parked (built, then removed on purpose)
 
@@ -65,10 +65,12 @@ through a rename.
   hill, along a single rail line. MOTIS has a `one-to-many` endpoint that would
   give a real matrix, but it rejected every coordinate format tried. *Build when
   an optimised day sends you somewhere obviously silly.*
-- **Multi-currency.** One currency per trip today. Real trips mix HKD/JPY/EUR.
-  Needs a rate per expense (entered, not fetched — the rate on the day you paid
-  is what matters) and conversion inside `settleUp`. *Build on the first trip
-  that crosses a currency.*
+- **Multi-currency for expenses on the ground.** A *booking* can now be paid in
+  another currency with a typed rate, which covers the flights and hotels booked
+  before you leave. An expense added on the trip itself is still trip-currency
+  only. Same shape: a currency and a rate per expense, and conversion inside
+  `settleUp`. *Build on the first trip where the party pays for things in two
+  currencies.*
 - **Unequal splits.** Everything splits evenly among `sharedBy`. Shares,
   percentages, or exact amounts per person. *Build when someone actually objects
   to an even split.*

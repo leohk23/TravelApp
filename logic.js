@@ -556,6 +556,26 @@ export function decodePolyline(encoded, precision = 5) {
   return out;
 }
 
+/**
+ * What a booking cost, in the trip's own currency.
+ *
+ * Bookings are often paid months ahead in another currency, and the number
+ * that matters afterwards is the one on the card statement — so the rate is
+ * typed, not fetched. A rate looked up today is not the rate you were charged.
+ *
+ * Returns null when the currencies differ and no rate has been given yet.
+ * That is not zero: the cost is real, it just cannot be added up yet, and a
+ * total that quietly counted it as nothing would be wrong.
+ */
+export function bookingCost(booking, tripCurrency) {
+  const paid = Number(booking?.cost) || 0;
+  if (!paid) return 0;
+  const currency = booking.currency || tripCurrency;
+  if (currency === tripCurrency) return paid;
+  const rate = Number(booking.rate) || 0;
+  return rate > 0 ? Math.round(paid * rate * 100) / 100 : null;
+}
+
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;
