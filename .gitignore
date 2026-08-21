@@ -7,3 +7,7 @@
 # numbers, and this repo is public.
 trip.json
 *.trip.json
+
+# Personal Claude Code settings for this checkout. Not team-wide, and this repo
+# is public.
+.claude/settings.local.json
