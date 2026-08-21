@@ -992,7 +992,10 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
    leg" without a heading having to say it. */
 .leg-block + .leg-block { border-top: 1px dashed var(--line); padding-top: 10px; margin-top: 2px; }
 .leg-head { gap: 8px; }
-.leg-head .f-legref { flex: 0 1 14ch; font-weight: 650; }
+/* A flight number is two letters and up to four digits, and a service name a
+   little more. Sized for that rather than left to be squeezed by whatever
+   else is on the row - which is how CX 510 ended up as three characters. */
+.leg-head .f-legref { flex: 0 0 14ch; font-weight: 650; }
 .leg-head .leg-x { margin-left: auto; }
 .add-leg {
   background: transparent; border-style: dashed; color: var(--dim);
@@ -1004,15 +1007,45 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
    it is typed rather than looked up - a rate fetched today is a different
    number from the one you actually paid. */
 .cost-lbl, .rate-lbl { gap: 6px; }
-.cost-lbl .f-cur { min-width: 7ch; padding: 8px 4px; }
-.cost-lbl .f-cost { width: 9ch; }
-.rate-lbl .f-rate { width: 8ch; }
+.cost-lbl .f-cur { width: 9ch; padding: 8px 4px; }
+.cost-lbl .f-cost { width: 12ch; }
+.rate-lbl .f-rate { width: 10ch; }
 .converted { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--dim); }
 
 /* Notes open in a dialog: they run to a couple of sentences and the row had
    about eight characters to offer them. */
-.booking .f-notes { width: 34px; padding: 0; flex: 0 0 auto; }
+/* Third in the corner column, under remove and expense. */
+.booking .f-notes { position: absolute; right: 6px; top: 86px; width: 34px; padding: 0; }
 .booking .f-notes svg { width: 17px; height: 17px; fill: currentColor; }
 .booking .f-notes.on { color: var(--accent); }
 
+/* The note itself stays on the card. Moving it into a dialog was about
+   giving it room to be written, not about hiding it. */
+.note-row { align-items: flex-start; }
+.f-notes-text {
+  flex: 1; min-width: 0; justify-content: flex-start; text-align: left;
+  background: transparent; border-color: transparent; color: var(--fg);
+  font-size: 13px; padding: 4px 8px; min-height: 30px; white-space: normal;
+}
+.f-notes-text:hover { background: var(--sunk); }
+.f-notes-text.empty { color: var(--dim); font-style: italic; }
+
 #askArea { width: 100%; resize: vertical; min-height: 5rem; padding: 8px 11px; }
+
+/* Fields sized to what actually goes in them. A booking reference runs to a
+   dozen characters, a hotel name to far more, and both were being sized by
+   whatever room the row had left over. */
+.f-conf { width: 14ch; }
+.head .f-ref { min-width: 18ch; }
+
+/* ---------- the itinerary filters ---------- */
+/* Built from the trip: a filter per kind it actually holds, each carrying its
+   own count, so "how many trains have I got" needs no clicking. */
+.iv-tabs { display: flex; gap: 4px; align-items: center; min-width: 0; }
+.subribbon .iv-glyph { font-size: 14px; line-height: 1; }
+.subribbon .iv-count {
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--sunk); color: var(--dim);
+  border-radius: 99px; padding: 1px 6px; min-width: 18px;
+}
+.subribbon button.on .iv-count { background: #ffffff2e; color: #fff; }

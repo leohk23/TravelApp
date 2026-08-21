@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v52';
+const BUILD = 'v53';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -39,6 +39,10 @@ for (const b of state.itinerary || []) {
   }];
   for (const k of ['ref', 'from', 'to', 'fromPt', 'toPt', 'fromTz', 'toTz', 'start', 'end']) delete b[k];
 }
+// The itinerary filter is per kind now, built from what the trip holds.
+if (state.itinView === 'stays') state.itinView = 'kind:Hotel';
+if (state.itinView === 'transport') state.itinView = 'all';
+
 // Move old defaults to the compact-map default; leave custom ratios alone.
 if (state.split === 0.42 || state.split === 0.6) state.split = 0.72;
 if (state.mapView === 'list') state.mapView = 'split';
@@ -932,6 +936,9 @@ function bookingCard(b) {
         title="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}"
         aria-label="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}"
         aria-pressed="${billed}">${billed ? `${BILLED_SVG}` : `${BILL_SVG}`}</button>
+      <button class="f-notes icon${b.notes ? ' on' : ''}" type="button"
+        title="${b.notes ? 'Edit the notes' : 'Add notes'}"
+        aria-label="Notes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm8 1.5V9h4.5L13 4.5zM7 12v2h10v-2H7zm0 4v2h7v-2H7z"/></svg></button>
     </div>
 
     ${legRows}
@@ -950,9 +957,11 @@ function bookingCard(b) {
         ? '<span class="chip warn">Rate needed to total this</span>'
         : `<span class="converted">= ${esc(fmtMoney(converted, state.currency))}</span>`) : ''}
       <span class="spacer"></span>
-      <button class="f-notes icon${b.notes ? ' on' : ''}" type="button"
-        title="${b.notes ? esc(b.notes) : esc(cfg.notes)}"
-        aria-label="Notes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm8 1.5V9h4.5L13 4.5zM7 12v2h10v-2H7zm0 4v2h7v-2H7z"/></svg></button>
+    </div>
+
+    <div class="brow note-row">
+      <button class="f-notes-text${b.notes ? '' : ' empty'}" type="button">${
+        b.notes ? esc(b.notes) : esc(cfg.notes)}</button>
     </div>`;
 
   // Plain text fields only save; anything affecting grouping or derived text redraws.
@@ -976,7 +985,7 @@ function bookingCard(b) {
     save(); render();
   };
 
-  li.querySelector('.f-notes').onclick = async () => {
+  const editNotes = async () => {
     const text = await askText({
       title: `Notes on ${b.ref || legs[0]?.ref || b.kind}`,
       label: 'Notes', value: b.notes || '', multiline: true,
@@ -986,6 +995,8 @@ function bookingCard(b) {
     if (text.trim()) b.notes = text.trim(); else delete b.notes;
     save(); render();
   };
+  li.querySelector('.f-notes').onclick = editNotes;
+  li.querySelector('.f-notes-text').onclick = editNotes;
 
   li.querySelector('.x').onclick = async () => {
     const ok = await ask({
@@ -1151,20 +1162,54 @@ const haystack = b => [b.kind, b.ref, b.conf, b.notes,
 
 let itinQuery = '';
 
+/**
+ * The filters worth offering, which is the kinds the trip actually holds.
+ *
+ * A trip with no trains has no reason to offer a train filter, and a count on
+ * each one answers "how many of those have I got" without pressing anything.
+ */
+function renderItinTabs(view, dayDate) {
+  const counts = new Map();
+  for (const b of state.itinerary) counts.set(b.kind, (counts.get(b.kind) || 0) + 1);
+  const onDay = dayDate
+    ? state.itinerary.filter(b => (isStay(b.kind) ? staysOn(b, dayDate) : movesOn(b, dayDate))).length
+    : state.itinerary.length;
+
+  const tabs = [
+    { iv: 'all', label: 'All', icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v2H4zm0 6h16v2H4zm0 6h16v2H4z"/></svg>`, n: state.itinerary.length },
+    ...KINDS.filter(k => counts.has(k)).map(k => ({
+      iv: `kind:${k}`, label: k, glyph: ICON[k], n: counts.get(k),
+    })),
+    { iv: 'day', label: 'This day', icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h2v2h6V2h2v2h2a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h2V2zM5 9v10h14V9H5z"/></svg>`, n: onDay },
+  ];
+
+  $('#itinTabs').replaceChildren(...tabs.map(t => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('role', 'tab');
+    btn.dataset.iv = t.iv;
+    btn.className = t.iv === view ? 'on' : '';
+    btn.title = `${t.label} (${t.n})`;
+    btn.setAttribute('aria-label', btn.title);
+    btn.innerHTML = (t.icon || `<span class="iv-glyph">${t.glyph}</span>`)
+      + `<span class="iv-label">${esc(t.label)}</span>`
+      + `<span class="iv-count">${t.n}</span>`;
+    btn.onclick = () => { state.itinView = t.iv; save(); render(); syncChrome(); };
+    return btn;
+  }));
+}
+
 function renderItinerary() {
   const view = state.itinView || 'all';
   const d = day().date;
   const q = itinQuery.trim().toLowerCase();
 
-  for (const btn of document.querySelectorAll('[data-iv]')) {
-    btn.classList.toggle('on', btn.dataset.iv === view);
-  }
+  renderItinTabs(view, d);
 
   state.itinerary.sort((a2, b2) => (startOf(a2) || '~').localeCompare(startOf(b2) || '~'));
 
   let shown = state.itinerary;
-  if (view === 'stays') shown = shown.filter(b => isStay(b.kind));
-  else if (view === 'transport') shown = shown.filter(b => !isStay(b.kind));
+  if (view.startsWith('kind:')) shown = shown.filter(b => b.kind === view.slice(5));
   else if (view === 'day') {
     shown = d
       ? shown.filter(b => (isStay(b.kind) ? staysOn(b, d) : movesOn(b, d)))
@@ -2543,9 +2588,6 @@ const addBooking = (kind, time) => {
   addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 }
 
-for (const btn of document.querySelectorAll('[data-iv]')) {
-  btn.onclick = () => { state.itinView = btn.dataset.iv; save(); render(); syncChrome(); };
-}
 $('#itinSearch').oninput = e => { itinQuery = e.target.value; renderItinerary(); };
 
 $('#addActivity').onclick = () => openActivity(null);
