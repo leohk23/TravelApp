@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v58';
+const BUILD = 'v59';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -350,28 +350,76 @@ function drawMap() {
  */
 {
   const pane = $('#planPane');
-  const MIN_X = 60;         // shorter than this is a tap that wandered
-  let id = null, x0 = 0, y0 = 0;
+  const wrap = $('#stopsWrap');
+  const WAKE_X = 12;        // where a drift becomes a swipe
+  const TAKE_X = 0.28;      // and how far across before letting go commits
+
+  let id = null, x0 = 0, y0 = 0, dir = 0, ghost = null, settling = false;
+
+  const shift = px => wrap.style.setProperty('--swipe', `${px}px`);
+  const clear = () => {
+    ghost?.remove();
+    ghost = null; dir = 0;
+    wrap.classList.remove('settling');
+    shift(0);
+  };
 
   pane.addEventListener('pointerdown', e => {
     // Mouse drags on a desktop are far more often a selection than a swipe.
-    if (e.pointerType === 'mouse') return;
+    if (e.pointerType === 'mouse' || settling) return;
     // A stop being dragged by its grip, or a field being used, is not a swipe.
     if (e.target.closest('.grip, input, select, textarea')) return;
-    id = e.pointerId; x0 = e.clientX; y0 = e.clientY;
+    id = e.pointerId; x0 = e.clientX; y0 = e.clientY; dir = 0;
   });
-  // pointercancel is the browser saying it has taken the gesture for a scroll.
-  // There is deliberately no pointerleave: a touch is implicitly captured, so
-  // leaving the pane mid-swipe is normal and dropping it there would lose every
-  // swipe that runs off the edge of the screen.
-  pane.addEventListener('pointercancel', () => { id = null; });
+
+  pane.addEventListener('pointermove', e => {
+    if (e.pointerId !== id) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+
+    if (!dir) {
+      // Wait until the gesture has said which way it is going. Anything more
+      // vertical than horizontal belongs to the scroller.
+      if (Math.abs(dx) < WAKE_X) return;
+      if (Math.abs(dx) < Math.abs(dy)) { id = null; return; }
+      dir = dx < 0 ? 1 : -1;
+      const next = state.days[state.dayIdx + dir];
+      if (next) {
+        // Built now, so the day you are heading for comes with your finger.
+        // Seeing it arrive is the only thing that says this gesture exists.
+        ghost = document.createElement('ol');
+        ghost.className = `stops ghost ${dir > 0 ? 'next' : 'prev'}`;
+        ghost.setAttribute('aria-hidden', 'true');
+        fillStops(next, ghost);
+        wrap.append(ghost);
+      }
+    }
+    // Nothing to move to means a short pull that springs back, which reads as
+    // "this is the end of the trip" rather than as a broken gesture.
+    shift(ghost ? dx : dx * 0.22);
+  });
+
+  pane.addEventListener('pointercancel', () => {   // the browser took it for a scroll
+    id = null; clear();
+  });
+
   pane.addEventListener('pointerup', e => {
     if (e.pointerId !== id) return;
     id = null;
-    const dx = e.clientX - x0, dy = e.clientY - y0;
-    // Mostly sideways, or it was someone scrolling who drifted.
-    if (Math.abs(dx) < MIN_X || Math.abs(dx) < Math.abs(dy) * 2) return;
-    goDay(state.dayIdx + (dx < 0 ? 1 : -1), dx < 0 ? 'fwd' : 'back');
+    if (!dir) return;
+
+    const dx = e.clientX - x0;
+    const width = wrap.offsetWidth || 1;
+    const take = ghost && Math.abs(dx) > width * TAKE_X;
+    const to = state.dayIdx + dir;
+
+    settling = true;
+    wrap.classList.add('settling');
+    shift(take ? -dir * width : 0);
+    setTimeout(() => {
+      settling = false;
+      clear();
+      if (take) goDay(to, dir > 0 ? 'fwd' : 'back', false);
+    }, 210);
   });
 }
 
@@ -776,7 +824,7 @@ function attachSearch(input, { onPick, onDetails, bias, tags, clearOnPick = fals
  * for two days of a trip can look much alike, and a screen that changes with
  * no motion reads as a screen that did not change.
  */
-function goDay(i, from = null) {
+function goDay(i, from = null, animate = true) {
   if (i < 0 || i >= state.days.length || i === state.dayIdx) return false;
   const back = from ? from === 'back' : i < state.dayIdx;
   state.dayIdx = i;
@@ -784,8 +832,10 @@ function goDay(i, from = null) {
   if (state.tab === 'local') prepareDayPlan(day());
   const list = $('#stops');
   list.classList.remove('slide-back', 'slide-fwd');
-  void list.offsetWidth;                      // restart the animation
-  list.classList.add(back ? 'slide-back' : 'slide-fwd');
+  if (animate) {
+    void list.offsetWidth;                    // restart the animation
+    list.classList.add(back ? 'slide-back' : 'slide-fwd');
+  }
   return true;
 }
 function renderDays() {
@@ -1375,10 +1425,13 @@ function hintRow(text) {
 /* ---------- day plan ---------- */
 let dragFrom = null;
 
-function renderPlan() {
-  const d = day();
-  renderDayBookings(d);
-  const list = $('#stops');
+/**
+ * Fill a list with a day's stops.
+ *
+ * Takes the day rather than reading the selected one, because a swipe needs
+ * to build the day you are heading towards while you are still on this one.
+ */
+function fillStops(d, list) {
   list.innerHTML = '';
 
   // Places are numbered to match the map pins; free-form items are not.
@@ -1407,6 +1460,12 @@ function renderPlan() {
           : 'Day ends'}</span>`;
     list.append(li);
   }
+}
+
+function renderPlan() {
+  const d = day();
+  renderDayBookings(d);
+  fillStops(d, $('#stops'));
   drawMap();
 }
 

@@ -1084,10 +1084,26 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 }
 
 /* ---------- swiping between days ---------- */
+/* The day you are heading for is built and parked just off the edge, then
+   both lists move together with your finger. Watching it arrive is the only
+   thing that tells you the gesture is there at all. */
+.stops-wrap { position: relative; overflow-x: clip; }
+.stops-wrap > .stops { transform: translateX(var(--swipe, 0px)); }
+.stops-wrap.settling > .stops { transition: transform 200ms ease-out; }
+.stops.ghost {
+  position: absolute; top: 0; width: 100%; margin: 0;
+  pointer-events: none;
+}
+.stops.ghost.next { left: 100%; padding-left: 14px; }
+.stops.ghost.prev { left: -100%; padding-right: 14px; }
+@media (prefers-reduced-motion: reduce) {
+  .stops-wrap.settling > .stops { transition: none; }
+}
+
 /* pan-y keeps vertical scrolling with the browser while leaving horizontal
-   drags to us. Without it the gesture is taken for a scroll and cancelled
-   before it can be recognised. */
-#planPane { touch-action: pan-y; }
+   drags to us. overflow-x guards against the day parked off the edge giving
+   the pane a sideways scrollbar of its own. */
+#planPane { touch-action: pan-y; overflow-x: hidden; }
 
 @keyframes day-fwd {
   from { transform: translateX(26px); opacity: .35; }
