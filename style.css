@@ -254,7 +254,12 @@ main > section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 }
 .stop.dragging { opacity: .35; }
 .stop.over { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.grip { cursor: grab; color: var(--dim); font-size: 19px; line-height: 1; padding: 4px; }
+/* touch-action: none is what makes a finger drag the row instead of scrolling
+   the page. Without it the gesture is stolen before the first pointermove. */
+.grip {
+  cursor: grab; color: var(--dim); font-size: 19px; line-height: 1; padding: 4px;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
 .grip:active { cursor: grabbing; }
 .when { width: 6.5ch; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; }
 .when small { display: block; color: var(--dim); font-weight: 400; }

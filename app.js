@@ -210,6 +210,11 @@ async function optimize() {
 
 /* ---------- map (Leaflet + OpenStreetMap tiles) ---------- */
 let map, layer;
+const WALK_COLOUR = '#f59e0b';
+/** The accent as the stylesheet currently has it, so the map follows the theme. */
+const rideColour = () =>
+  getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3388ff';
+
 function drawMap() {
   const d = day();
   if (typeof L === "undefined") return;   // CDN blocked; the rest of the app still works
@@ -217,6 +222,9 @@ function drawMap() {
     map = L.map('map').setView([22.302, 114.17], 11);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
+      // Held back a little so the route reads over it. The map is context;
+      // the line is the answer.
+      opacity: 0.72,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, transit <a href="https://transitous.org">Transitous</a>',
     }).addTo(map);
     map.attributionControl.setPosition('bottomleft');   // frees the corner for the button
@@ -256,10 +264,15 @@ function drawMap() {
       any = true;
       const walk = String(s.mode || '').toUpperCase() === 'WALK';
       drawn.push(...line);
+      // Walking is a round-dotted amber trail and riding a solid accent line,
+      // so which is which reads at a glance rather than from line weight.
+      // Both at full opacity: it is the tiles underneath that give way.
       L.polyline(line, {
-        weight: walk ? 3 : 4,
-        opacity: walk ? 0.5 : 0.8,
-        dashArray: walk ? '4 6' : null,
+        color: walk ? WALK_COLOUR : rideColour(),
+        weight: walk ? 6 : 5,
+        opacity: 1,
+        dashArray: walk ? '1 12' : null,
+        lineCap: 'round', lineJoin: 'round',
       }).addTo(layer);
     }
     // No shape, so say only what is certain: these two stops are connected.
@@ -1092,10 +1105,21 @@ function renderPlan() {
   drawMap();
 }
 
+/**
+ * The flights this day cannot show you in the plan itself.
+ *
+ * A flight with coordinates at both ends becomes two stops and a leg between
+ * them, which says the same thing better: the times in their own zones, the
+ * hours in the air, and where it sits in the day. Repeating it in a card
+ * above was the same fact three times. A flight whose airports were typed
+ * rather than picked has no coordinates and so no stops, and then the card is
+ * the only sign of it.
+ */
 function renderDayBookings(d) {
   const host = $('#dayBookings');
+  const onPlan = new Set(d.items.map(it => it.flightId).filter(Boolean));
   const flights = d.date
-    ? state.itinerary.filter(b => b.kind === 'Flight' && movesOn(b, d.date))
+    ? state.itinerary.filter(b => b.kind === 'Flight' && movesOn(b, d.date) && !onPlan.has(b.id))
     : [];
   host.replaceChildren(...flights.map(b => {
     const departs = dateOf(b.start) === d.date;
@@ -1148,19 +1172,51 @@ function itemRow(d, row, ord) {
       ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}
     </div>` : ''}`;
 
+  li.dataset.i = row.i;
   li.querySelector('.what-btn').onclick = () => openActivity(row.i);
-  // draggable only from the grip, so a tap on the row still opens the editor
-  li.querySelector('.grip').onmousedown = () => { li.draggable = true; };
-  li.ondragstart = e => { dragFrom = row.i; e.dataTransfer.effectAllowed = 'move'; li.classList.add('dragging'); };
-  li.ondragend = () => { li.draggable = false; li.classList.remove('dragging'); };
-  li.ondragover = e => { e.preventDefault(); li.classList.add('over'); };
-  li.ondragleave = () => li.classList.remove('over');
-  li.ondrop = e => {
-    e.preventDefault(); li.classList.remove('over');
-    if (dragFrom === null || dragFrom === row.i) return;
-    d.items.splice(row.i, 0, ...d.items.splice(dragFrom, 1));
-    dragFrom = null; save(); recalc();
+
+  // Pointer events rather than HTML5 drag-and-drop. That API has never worked
+  // on touch at all, which is the wrong way round for an app used standing in
+  // a station. One code path now covers mouse and finger alike.
+  //
+  // The list is not reordered while dragging: a re-render mid-gesture would
+  // drop the pointer capture. The row under the finger is highlighted, and the
+  // move happens when you let go.
+  const grip = li.querySelector('.grip');
+  const rowUnder = e => document
+    .elementFromPoint(e.clientX, e.clientY)?.closest('.stop');
+
+  grip.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    dragFrom = row.i;
+    li.classList.add('dragging');
+  });
+  grip.addEventListener('pointermove', e => {
+    if (dragFrom !== row.i) return;
+    const over = rowUnder(e);
+    for (const el of $('#stops').children) {
+      el.classList.toggle('over', el === over && el !== li);
+    }
+  });
+  const drop = e => {
+    if (dragFrom !== row.i) return;
+    const over = rowUnder(e);
+    li.classList.remove('dragging');
+    for (const el of $('#stops').children) el.classList.remove('over');
+    const to = over && over !== li ? +over.dataset.i : null;
+    dragFrom = null;
+    if (to == null || Number.isNaN(to)) return;
+    d.items.splice(to, 0, ...d.items.splice(row.i, 1));
+    save(); recalc();
   };
+  grip.addEventListener('pointerup', drop);
+  grip.addEventListener('pointercancel', () => {
+    if (dragFrom !== row.i) return;
+    li.classList.remove('dragging');
+    for (const el of $('#stops').children) el.classList.remove('over');
+    dragFrom = null;
+  });
   return li;
 }
 

@@ -39,8 +39,8 @@ the browser, which is why it needs an HTTP server rather than `file://`.
 
 - **New non-trivial logic goes in `logic.js` with an assert in `test.mjs`.** If
   it can be written as a pure function, it must be.
-- **No new dependencies.** Leaflet (CDN, SRI-pinned) is the only one. Drag-and-drop
-  is the native HTML5 API, dates are `<input type="date">`, the setup wizard is a
+- **No new dependencies.** Leaflet (CDN, SRI-pinned) is the only one. Reordering
+  a day is Pointer Events, so one path serves mouse and finger, dates are `<input type="date">`, the setup wizard is a
   native `<dialog>`, storage is `localStorage`. Keep reaching for the platform first.
 - **Nothing that needs an API key.** That constraint is deliberate, not
   incidental — see the services table below.

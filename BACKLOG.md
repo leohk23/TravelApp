@@ -3,8 +3,9 @@
 Deliberately not built yet. Each line says what would trigger building it.
 
 Removed once built, so everything here is still outstanding. Gone since the
-last sweep: opening-hours warnings, real route shapes on the map, per-operator
-and exact fares, and carrying a member's expenses through a rename.
+last sweep: opening-hours warnings, real route shapes on the map, reordering a
+day by touch, per-operator and exact fares, and carrying a member's expenses
+through a rename.
 
 ## Parked (built, then removed on purpose)
 
@@ -82,10 +83,6 @@ and exact fares, and carrying a member's expenses through a rename.
 
 ## Known rough edges
 
-- **Drag-to-reorder does nothing on touch.** HTML5 drag-and-drop has no mobile
-  support, and the app is now installable as a phone app. Swapping to Pointer
-  Events is contained to `itemRow()`. *Build the first time you try to plan on
-  a phone.*
 - **The only copy of your data is one browser localStorage.** Export/Import is
   parked (above), so clearing site data or losing the device loses every
   confirmation number. Deliberate for now, deliberately recorded here.
