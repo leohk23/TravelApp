@@ -88,11 +88,11 @@ One object in `localStorage['travelapp']`, written by `save()`:
   name, currency, members: [name], tab,      // tab = which ribbon section is open
   dayIdx,                                    // which day tab is open
   mapView, split,                             // "split" | "map", plan-pane ratio
-  itinerary: [{ id, kind, ref, from, to, fromPt?, toPt?, start, end, conf, cost, notes }],
+  itinerary: [{ id, kind, ref, from, to, fromPt?, toPt?, fromTz?, toTz?, start, end, conf, cost, notes }],
   days: [{
     date, city, timeZone, start,             // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00"
     cityPt,                                  // cached geocode of city, for search bias
-    items: [{ name, address?, lat?, lng?, stayMin, hotelId?, flightId?, role? }],
+    items: [{ name, address?, lat?, lng?, stayMin, at?, atTz?, hotelId?, flightId?, role? }],
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id
@@ -102,8 +102,23 @@ One object in `localStorage['travelapp']`, written by `save()`:
 Some of a day's stops are **derived from its bookings** and rebuilt by
 `ensureLinkedStops()`: the airports a flight passes through that day
 (`flightId` plus `role`) and the hotel you sleep in (`hotelId`). Order comes
-from the clock, with the hotel placed after the last arrival, so an arrival day
-routes airport to hotel rather than starting at the first sight you typed.
+from the clock. You start the day where you slept, except on the day you check
+in, when the hotel follows the flight that brings you to it. A departure day
+also ends in an arrival — the flight home — and treating that one as the
+flight that brings you here once started the last morning in Hong Kong.
+
+A derived airport stop carries `at`, the time the ticket prints, and `atTz`,
+the zone that time is in. `scheduleDay()` **pins** the timeline to `at` rather
+than accumulating towards it, so a day starts when the flight leaves and the
+landing row reads the landing time. The two ends of a flight are in two zones,
+so the day plan tags the odd one out — a Hong Kong departure says so — and
+`flightSeconds()` gives the real time in the air. Subtracting the printed
+times makes an 08:20 to 13:05 hop look like 4h 45 when it is 3h 45; the extra
+hour is the timezone. Zones resolve once per booking into `fromTz`/`toTz`.
+
+Two stops of the same flight are never routed: no transit router has heard of
+CX 510, so `flightHop()` draws that leg from the booking instead of reporting
+no route across the East China Sea.
 
 Airports only become stops when picked from the airport list, since only then do
 they carry coordinates. Never hand-edit a derived item: the next rebuild wins.

@@ -1,4 +1,4 @@
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -93,24 +93,6 @@ function toast(msg, kind = 'bad') {
 let busy = 0;
 const setBusy = n => { busy += n; $('#busy').hidden = busy <= 0; };
 
-/**
- * When the day's plan can actually begin.
- *
- * A day whose flight lands at 14:14 cannot start at 09:00, but that is exactly
- * what it did: the plan had the traveller leaving the arrival airport five
- * hours before touchdown.
- */
-function planStart(d) {
-  if (!d.date) return d.start;
-  const landing = state.itinerary
-    .filter(b => b.kind === 'Flight' && b.end && dateOf(b.end) === d.date)
-    .map(b => timeOf(b.end))
-    .filter(Boolean)
-    .sort()
-    .pop();
-  return landing && landing > d.start ? landing : d.start;
-}
-
 /** Resolve once per labelled city; an unlabelled day follows its first place. */
 async function dayTimeZone(d) {
   if (d.timeZone) return d.timeZone;
@@ -126,9 +108,34 @@ async function dayTimeZone(d) {
   return timeZone;
 }
 
-/** Departure clock in the destination, never the device's timezone. */
-async function startDate(d) {
-  return zonedDateTime(d.date, planStart(d), await dayTimeZone(d));
+/**
+ * The instant a stop happens, for a stop you hold a ticket for.
+ *
+ * The ticket prints a local time at each end of a flight, so a departure
+ * airport is read in its own zone and everything else in the day's.
+ */
+function pinnedInstant(it, dayTz) {
+  if (!it.at) return null;
+  try { return zonedDateTime(it.at.slice(0, 10), it.at.slice(11, 16), it.atTz || dayTz); }
+  catch { return null; }
+}
+
+/**
+ * The leg between two stops of the same flight: the flight itself.
+ *
+ * No transit router has ever heard of CX 510, so asking one produced "no route"
+ * between Hong Kong and Fukuoka. The booking already knows how long it takes.
+ */
+function flightHop(a, b) {
+  if (!a?.flightId || a.flightId !== b?.flightId) return null;
+  if (a.role !== 'depart' || b.role !== 'arrive') return null;
+  const f = state.itinerary.find(x => x.id === a.flightId);
+  if (!f) return null;
+  return {
+    seconds: flightSeconds(f.start, f.end, f.fromTz, f.toTz),
+    summary: f.ref || 'Flight',
+    transfers: 0, lines: [], steps: [], flight: true,
+  };
 }
 
 /* ---------- routing ---------- */
@@ -138,11 +145,18 @@ async function recalc() {
   if (!pairs.length) { d.legs = []; save(); return render(); }
   setBusy(1);
   try {
-    let t = await startDate(d);
+    const tz = await dayTimeZone(d);
+    let t = zonedDateTime(d.date, d.start, tz);
     d.legs = [];
     for (const [from, to] of pairs) {
-      // Everything between the two places still costs time, notes included.
-      for (let k = from; k < to; k++) t = new Date(t.getTime() + (d.items[k].stayMin ?? 60) * 60000);
+      // Everything between the two places still costs time, notes included, and
+      // a stop with a ticket resets the clock to what the ticket says.
+      for (let k = from; k < to; k++) {
+        t = pinnedInstant(d.items[k], tz) || t;
+        t = new Date(t.getTime() + (d.items[k].stayMin ?? 60) * 60000);
+      }
+      const hop = flightHop(d.items[from], d.items[to]);
+      if (hop) { d.legs[from] = hop; save(); renderPlan(); continue; }
       try {
         const leg = await route(d.items[from], d.items[to], t);
         d.legs[from] = leg;          // keyed by origin index, matching scheduleDay
@@ -327,10 +341,10 @@ function flightStops(d) {
     // Only airports picked from the list carry coordinates, and without those
     // there is nothing to route to.
     if (dateOf(b.start) === d.date && b.fromPt) {
-      out.push({ at: b.start, role: 'depart', pt: b.fromPt, label: b.from, flightId: b.id });
+      out.push({ at: b.start, tz: b.fromTz || '', role: 'depart', pt: b.fromPt, label: b.from, flightId: b.id });
     }
     if (dateOf(b.end) === d.date && b.toPt) {
-      out.push({ at: b.end, role: 'arrive', pt: b.toPt, label: b.to, flightId: b.id });
+      out.push({ at: b.end, tz: b.toTz || '', role: 'arrive', pt: b.toPt, label: b.to, flightId: b.id });
     }
   }
   return out.sort((x, y) => String(x.at).localeCompare(String(y.at)));
@@ -349,6 +363,24 @@ async function ensureLinkedStops(d = day()) {
   const hotel = stayFor(d);
   const flights = flightStops(d);
 
+  // The two ends of a flight sit in two timezones and the ticket prints a local
+  // time at each, so 08:20 to 13:05 is a three-hour flight, not a five-hour one.
+  // Resolved once per booking and kept, because it never changes.
+  for (const f of flights) {
+    if (f.tz) continue;
+    const b = state.itinerary.find(x => x.id === f.flightId);
+    if (!b) continue;
+    const key = f.role === 'depart' ? 'fromTz' : 'toTz';
+    if (b[key]) { f.tz = b[key]; continue; }
+    setBusy(1);
+    try {
+      b[key] = await timeZoneAt(f.pt);
+      f.tz = b[key];
+      save();
+    } catch { /* no zone means no duration; both clock times still read right */ }
+    finally { setBusy(-1); }
+  }
+
   let hotelPoint = hotel && hotel.lat != null && hotel.lng != null ? hotel : null;
   if (hotel && !hotelPoint) {
     const q = hotel.from || hotel.ref;
@@ -364,12 +396,20 @@ async function ensureLinkedStops(d = day()) {
   }
 
   const derived = [];
-  const lastArrival = flights.reduce((k, f, i) => (f.role === 'arrive' ? i : k), -1);
+  // You start the day where you slept. The exception is the day you check in,
+  // when the hotel comes after the flight that brings you to it. A departure
+  // day also ends in an arrival - the flight home - and putting the hotel after
+  // that one had the last morning in Fukuoka starting in Hong Kong.
+  const checkingIn = hotel && dateOf(hotel.start) === d.date;
+  const lastArrival = checkingIn
+    ? flights.reduce((k, f, i) => (f.role === 'arrive' ? i : k), -1)
+    : -1;
   flights.forEach((f, i) => {
     derived.push({
       name: f.label || (f.role === 'arrive' ? 'Arrival airport' : 'Departure airport'),
       address: f.pt.name || f.pt.address || '',
       lat: f.pt.lat, lng: f.pt.lng, stayMin: 0,
+      at: f.at, atTz: f.tz || '',
       flightId: f.flightId, role: f.role,
     });
     if (i === lastArrival && hotelPoint) derived.push(hotelItem(hotel, hotelPoint));
@@ -388,7 +428,7 @@ async function ensureLinkedStops(d = day()) {
   const next = [...head, ...kept, ...tail];
 
   const key = list => JSON.stringify(list.map(it =>
-    [it.name, it.address, it.lat, it.lng, it.stayMin, it.hotelId, it.flightId, it.role]));
+    [it.name, it.address, it.lat, it.lng, it.stayMin, it.hotelId, it.flightId, it.role, it.at, it.atTz]));
   if (key(next) === key(d.items)) return false;
   d.items = next;
   save();
@@ -620,7 +660,16 @@ function movementPhase(b, date) {
   return departs ? 'Departing flight' : 'Arriving flight';
 }
 
-const movementTime = (b, date) => timeOf(dateOf(b.start) === date ? b.start : b.end);
+/**
+ * When a movement happens on this day, tagged with the end it happens at.
+ * "at 08:20" on a flight leaves the reader asking whose 08:20 it is.
+ */
+const movementTime = (b, date) => {
+  const departing = dateOf(b.start) === date;
+  const t = timeOf(departing ? b.start : b.end);
+  const code = b.kind === 'Flight' ? (departing ? b.from : b.to) : '';
+  return t && code ? `${t} ${code}` : t;
+};
 
 const newBooking = (kind, start = '') =>
   ({ id: crypto.randomUUID(), kind, ref: '', from: '', to: '', start, end: '', conf: '', cost: 0, notes: '' });
@@ -628,11 +677,20 @@ const newBooking = (kind, start = '') =>
 /** Nights for a stay; nothing for transport, whose local times cross time zones. */
 const timeOf = dt => (dt && dt.length > 10 ? dt.slice(11, 16) : '');
 
+/** A zone read as a place: "Asia/Hong_Kong" -> "Hong Kong". */
+const zoneLabel = tz => String(tz || '').split('/').pop().replace(/_/g, ' ');
+
 function spanLabel(b) {
-  if (!b.start || !b.end || !isStay(b.kind)) return '';
-  // Compare dates only: a stay may carry no time at all.
-  const nights = Math.round((parseISO(dateOf(b.end)) - parseISO(dateOf(b.start))) / dayMs);
-  return nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : '';
+  if (!b.start || !b.end) return '';
+  if (isStay(b.kind)) {
+    // Compare dates only: a stay may carry no time at all.
+    const nights = Math.round((parseISO(dateOf(b.end)) - parseISO(dateOf(b.start))) / dayMs);
+    return nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : '';
+  }
+  // A flight's two times are on two clocks, so the gap between them is not
+  // the flight. Say how long you are actually in the air.
+  const secs = b.kind === 'Flight' ? flightSeconds(b.start, b.end, b.fromTz, b.toTz) : null;
+  return secs ? `${fmtDur(secs)} in the air` : '';
 }
 
 /** What the range button on a stay card reads. */
@@ -644,11 +702,17 @@ function stayLabel(b) {
   return `${from}  →  ${to}`;
 }
 
+/**
+ * A flight's clock times are local to each end, exactly as the airline prints
+ * them, so each one is tagged with the airport it belongs to. Untagged, the
+ * pair reads as one clock and an 08:20 to 13:05 hop looks like five hours.
+ */
 function journeyLabel(b) {
   if (!b.start) return 'Set depart and arrive';
-  const from = fmtDayLabel(b.start) + (timeOf(b.start) ? ` ${timeOf(b.start)}` : '');
-  const to = b.end ? fmtDayLabel(b.end) + (timeOf(b.end) ? ` ${timeOf(b.end)}` : '') : '?';
-  return `${from}  →  ${to}`;
+  const tag = b.kind === 'Flight';
+  const end = (dt, code) => fmtDayLabel(dt) + (timeOf(dt) ? ` ${timeOf(dt)}` : '')
+    + (tag && code ? ` ${code}` : '');
+  return `${end(b.start, b.from)}  →  ${b.end ? end(b.end, b.to) : '?'}`;
 }
 
 function bookingCard(b, { showDate = false } = {}) {
@@ -718,6 +782,7 @@ function bookingCard(b, { showDate = false } = {}) {
       t1: timeOf(b.start),
       t2: timeOf(b.end),
       mode: stay ? 'stay' : 'journey',
+      ends: b.kind === 'Flight' ? [b.from, b.to] : null,
     });
     if (!res) return;
     // Times are optional: without one the value stays date-only, which every
@@ -902,7 +967,7 @@ function renderPlan() {
   const ord = new Map();
   d.items.forEach((it, i) => { if (isPlace(it)) ord.set(i, ord.size + 1); });
 
-  for (const row of scheduleDay(d.items, d.legs, planStart(d))) {
+  for (const row of scheduleDay(d.items, d.legs, d.start)) {
     list.append(row.type === 'item' ? itemRow(d, row, ord) : legRow(d, row));
   }
   if (!d.items.length) {
@@ -919,16 +984,22 @@ function renderDayBookings(d) {
   host.replaceChildren(...flights.map(b => {
     const departs = dateOf(b.start) === d.date;
     const arrives = dateOf(b.end) === d.date;
+    // Each time is local to its own airport, so each one says which.
+    const at = (dt, code) => [timeOf(dt), code].filter(Boolean).join(' ');
     const time = departs && arrives
-      ? [timeOf(b.start), timeOf(b.end)].filter(Boolean).join(' → ')
-      : timeOf(departs ? b.start : b.end);
+      ? [at(b.start, b.from), at(b.end, b.to)].filter(Boolean).join(' → ')
+      : at(departs ? b.start : b.end, departs ? b.from : b.to);
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'day-booking';
     card.innerHTML = `<span class="day-booking-kind">${movementPhase(b, d.date)}</span>`
       + `<b>${esc(b.ref || 'Flight')}</b>`
       + (time ? `<time>${esc(time)}</time>` : '')
-      + (b.from || b.to ? `<span class="day-booking-route">${esc(b.from || '?')} → ${esc(b.to || '?')}</span>` : '');
+      // The route is already in the time line once both codes are on it, so
+      // what is worth the second row instead is how long the flight takes.
+      + (departs && arrives && b.from && b.to
+        ? (spanLabel(b) ? `<span class="day-booking-route">${esc(spanLabel(b))}</span>` : '')
+        : b.from || b.to ? `<span class="day-booking-route">${esc(b.from || '?')} → ${esc(b.to || '?')}</span>` : '');
     card.onclick = () => {
       state.itinView = 'day';
       showTab('itinerary');
@@ -947,7 +1018,9 @@ function itemRow(d, row, ord) {
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
     <div class="marker">${it.flightId ? (it.role === 'arrive' ? '🛬' : '🛫') : it.hotelId ? '🏨' : row.place ? ord.get(row.i) : '•'}</div>
-    <div class="when">${fmtTime(row.arrive)}<small>${fmtTime(row.depart)}</small></div>
+    <div class="when">${fmtTime(row.arrive)}${
+      it.atTz && it.atTz !== d.timeZone ? `<small class="tz">${esc(zoneLabel(it.atTz))} time</small>`
+      : row.depart !== row.arrive ? `<small>${fmtTime(row.depart)}</small>` : ''}</div>
     <button class="what-btn" type="button">
       <b>${esc(it.name || (row.place ? 'Unnamed stop' : 'What are you doing?'))}</b>
       ${sub ? `<small>${it.notes ? '✎ ' : ''}${esc(sub)}</small>` : ''}
@@ -1138,6 +1211,17 @@ $('#actDlg').addEventListener('close', () => {
 
 function legRow(d, row) {
   const li = document.createElement('li');
+
+  // A flight is not a journey any transit router has heard of, so it is drawn
+  // from the booking rather than asked for and answered with "no route".
+  if (row.leg?.flight) {
+    li.className = 'leg flight';
+    li.innerHTML = `
+      <span class="dur">${row.leg.seconds ? esc(fmtDur(row.leg.seconds)) : 'in the air'}</span>
+      <span class="via">✈ ${esc(row.leg.summary)}</span>`;
+    return li;
+  }
+
   li.className = 'leg' + (row.leg ? '' : ' bad');
   // No agency in the feeds tested publishes GTFS fares, so there is no amount to
   // read. What we can do is recognise a journey you have already paid for.
@@ -1288,7 +1372,7 @@ function renderOverview() {
   $('#ovDays').replaceChildren(...state.days.map((d, i) => {
     const stays = state.itinerary.filter(b => isStay(b.kind) && d.date && staysOn(b, d.date));
     const moves = state.itinerary.filter(b => !isStay(b.kind) && d.date && movesOn(b, d.date));
-    const rows = scheduleDay(d.items, d.legs, planStart(d));
+    const rows = scheduleDay(d.items, d.legs, d.start);
     const travel = rows.reduce((s, r) => s + (r.type === 'leg' && r.min ? r.min : 0), 0);
 
     const li = document.createElement('li');
@@ -1764,15 +1848,21 @@ function updateRangeSub() {
 }
 
 /** Resolves { start, end, t1, t2 } or null. Times may be empty strings. */
-function pickRange({ title, range, t1 = '', t2 = '', mode = 'stay' }) {
+function pickRange({ title, range, t1 = '', t2 = '', mode = 'stay', ends = null }) {
   $('#rangeTitle').textContent = title;
   rangeMode = mode;
   rangePending = range;
-  $('#rangeLabel1').textContent = mode === 'journey' ? 'Depart' : 'Check in';
-  $('#rangeLabel2').textContent = mode === 'journey' ? 'Arrive' : 'Check out';
-  $('#rangeCal .cal-hint').textContent = mode === 'journey'
-    ? 'Choose the departure and arrival dates.'
-    : 'Choose the check-in and check-out dates.';
+  // Naming the airport on each field is the whole answer to "which clock is
+  // this?": you copy both times straight off the ticket.
+  $('#rangeLabel1').textContent = mode !== 'journey' ? 'Check in'
+    : ends?.[0] ? `Departs ${ends[0]}` : 'Depart';
+  $('#rangeLabel2').textContent = mode !== 'journey' ? 'Check out'
+    : ends?.[1] ? `Arrives ${ends[1]}` : 'Arrive';
+  $('#rangeCal .cal-hint').textContent = mode !== 'journey'
+    ? 'Choose the check-in and check-out dates.'
+    : ends
+      ? 'Choose the departure and arrival dates, then copy both times from your ticket. Each one is the local time at its own airport.'
+      : 'Choose the departure and arrival dates.';
   $('#rangeT1').value = t1;
   $('#rangeT2').value = t2;
   updateRangeSub();

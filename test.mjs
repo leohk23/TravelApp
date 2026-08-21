@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -306,6 +306,32 @@ for (const c of FARES.cities) {
   }
 }
 
+// --- a flight has two clocks, and the gap between them is not the flight ---
+const HK = "Asia/Hong_Kong", JP = "Asia/Tokyo";
+assert.equal(flightSeconds("2026-09-12T08:20", "2026-09-12T13:05", HK, JP), (3 * 60 + 45) * 60,
+  "the extra hour on the ticket is the timezone, not time in the air");
+assert.equal(flightSeconds("2026-09-16T14:30", "2026-09-16T17:20", JP, HK), (3 * 60 + 50) * 60,
+  "the way back gains the hour instead");
+assert.equal(flightSeconds("2026-08-17T09:00", "2026-08-18T14:14", "Europe/London", JP),
+  (21 * 60 + 14) * 60, "overnight, across a date and two offsets");
+assert.equal(flightSeconds("2026-09-12T08:20", "2026-09-12T13:05", HK, ""), null,
+  "an unknown zone gives no duration rather than a wrong one");
+assert.equal(flightSeconds("2026-09-12", "2026-09-12T13:05", HK, JP), null, "no time, no duration");
+assert.equal(flightSeconds("2026-09-12T13:05", "2026-09-12T08:20", JP, JP), null,
+  "landing before takeoff is not a duration");
+
+// --- a stop you hold a ticket for happens when the ticket says ---
+const flightDay = scheduleDay([
+  { name: "HKG", lat: 22.3, lng: 113.9, stayMin: 0, at: "2026-09-12T08:20" },
+  { name: "FUK", lat: 33.6, lng: 130.5, stayMin: 0, at: "2026-09-12T13:05" },
+  { name: "Hotel", lat: 33.59, lng: 130.42, stayMin: 30 },
+], { 0: { seconds: 13500 }, 1: { seconds: 1800 } }, "09:00");
+const stops = flightDay.filter(r => r.type === "item");
+assert.equal(stops[0].arrive, 8 * 60 + 20, "the day starts when the flight leaves, not at 09:00");
+assert.equal(stops[1].arrive, 13 * 60 + 5, "and lands when the ticket says, not when the sum says");
+assert.equal(stops[2].arrive, 13 * 60 + 35, "after the last pin the clock runs on from it");
+assert.equal(stops[0].pinned, true);
+assert.equal(stops[2].pinned, false, "a stop with no ticket is not pinned");
 // --- Fukuoka, the city the preview demo plans ---
 const FUKUOKA = { lat: 33.5904, lng: 130.4017 };
 assert.equal(fareCity(FARES, FUKUOKA).id, "fukuoka");
@@ -334,6 +360,16 @@ for (const d of DEMO.days) {
 }
 assert.ok(fareCity(FARES, DEMO.days[0].items.find(i => i.lat != null)),
   "the demo city needs a fare table, or the demo shows no fares at all");
+for (const day of DEMO.days) {
+  for (const it of day.items) {
+    if (!it.flightId) continue;
+    const b = DEMO.itinerary.find(x => x.id === it.flightId);
+    assert.equal(it.at, it.role === "arrive" ? b.end : b.start,
+      "a demo airport stop must be pinned to its own end of the flight");
+    assert.equal(it.atTz, it.role === "arrive" ? b.toTz : b.fromTz,
+      "and to the zone that end is in");
+  }
+}
 
 // --- step times belong to the destination, not the device ---
 assert.equal(fmtInstant("2026-09-01T09:02:00Z", "Asia/Hong_Kong"), "17:02");

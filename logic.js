@@ -37,6 +37,26 @@ export function zonedDateTime(dateISO, time, timeZone, now = new Date()) {
   return out;
 }
 
+/**
+ * How long a flight actually takes, from the two local times printed on the
+ * ticket and the timezone at each end.
+ *
+ * Subtracting them naively gives 4h 45 for an 08:20 Hong Kong departure landing
+ * at 13:05 in Fukuoka. The flight is 3h 45; the extra hour is the timezone.
+ * Returns null unless both zones are known, because a confident wrong duration
+ * is worse than none.
+ */
+export function flightSeconds(startISO, endISO, tzFrom, tzTo) {
+  if (!startISO || !endISO || !tzFrom || !tzTo) return null;
+  const split = v => [v.slice(0, 10), v.slice(11, 16)];
+  try {
+    const [d1, t1] = split(startISO), [d2, t2] = split(endISO);
+    if (!t1 || !t2) return null;
+    const secs = (zonedDateTime(d2, t2, tzTo) - zonedDateTime(d1, t1, tzFrom)) / 1000;
+    return secs > 0 ? secs : null;
+  } catch { return null; }
+}
+
 /** minutes-since-midnight -> "09:05" (with " +1" for next day) */
 export function fmtTime(m) {
   const h = Math.floor(m / 60), d = Math.floor(h / 24);
@@ -99,10 +119,23 @@ export function placePairs(items) {
   return out;
 }
 
+/** "2026-09-12T08:20" -> 500 minutes since midnight. null when there is no time. */
+export function clockMinutes(dt) {
+  const s = String(dt || '');
+  if (s.length < 16 || s[10] !== 'T' || s[13] !== ':') return null;
+  const h = +s.slice(11, 13), m = +s.slice(14, 16);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+}
+
 /**
  * Walk the day: items may be places (routed between) or free-form entries that
  * only take up time. legs[originIndex] = { seconds } for the hop leaving that
  * place. Returns interleaved rows with times in minutes-since-midnight.
+ *
+ * An item carrying `at` is a stop you hold a ticket for, and it happens when
+ * the ticket says rather than wherever the running total has drifted to. Its
+ * clock is the one printed on the ticket, so a departure airport reads in its
+ * own timezone and the row after it reads in the destination's.
  */
 export function scheduleDay(items, legs = [], startTime = "09:00") {
   const [h, mi] = startTime.split(":").map(Number);
@@ -117,8 +150,10 @@ export function scheduleDay(items, legs = [], startTime = "09:00") {
       out.push({ type: "leg", from: lastPlace, to: i, min, leg });
       if (min != null) t += min;
     }
+    const pinned = clockMinutes(it.at);
+    if (pinned != null) t = pinned;
     const stay = it.stayMin ?? 60;
-    out.push({ type: "item", i, arrive: t, depart: t + stay, place: isPlace(it) });
+    out.push({ type: "item", i, arrive: t, depart: t + stay, place: isPlace(it), pinned: pinned != null });
     t += stay;
     if (isPlace(it)) lastPlace = i;
   });
