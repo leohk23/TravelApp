@@ -77,7 +77,7 @@
           <p id="ovMeta"></p>
         </div>
         <span class="spacer"></span>
-        <button id="printBtn">Print</button>
+        <button id="printBtn" class="icon" type="button" title="Print this trip" aria-label="Print this trip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v4H7V3zm-3 5h16a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-2v4H6v-4H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zm4 8v4h8v-4H8zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg></button>
       </div>
       <ol id="ovDays"></ol>
       <div class="overview-foot"><button id="aboutBtn" class="about-link" type="button">About</button></div>
@@ -260,14 +260,15 @@
 <dialog id="actDlg">
   <div class="ask-head">
     <h2 id="actTitle">Activity</h2>
-    <p id="actAddr"></p>
   </div>
   <div class="wiz-body">
     <label>Place or activity
       <span class="ac"><input id="actName" placeholder="Search a place, or type an activity…"
         autocomplete="off" aria-describedby="actHelp actError"></span>
-      <small id="actHelp">Pick a search result for routing, or leave it as text for a free-form activity.</small>
+      <small id="actAddr" class="act-addr" hidden></small>
+      <small id="actAddrLocal" class="act-addr" hidden></small>
       <small id="actHours" class="act-hours" hidden></small>
+      <small id="actHelp">Pick a search result for routing, or leave it as text for a free-form activity.</small>
       <small id="actError" class="form-error" role="alert" hidden></small>
     </label>
     <label>Time spent here

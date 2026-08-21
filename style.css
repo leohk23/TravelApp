@@ -203,10 +203,17 @@ main > section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 /* ---------- itinerary bookings ---------- */
 .group { margin-bottom: 4px; }
+/* Remove on top, expense under it, same corner on every card. Both were text
+   buttons in the header row, where they competed with the flight number for
+   space and moved about depending on what else the card had. */
+.booking .x { position: absolute; right: 6px; top: 6px; }
+.booking .bill { position: absolute; right: 6px; top: 46px; width: 34px; padding: 0; }
+.booking .bill svg { width: 17px; height: 17px; fill: currentColor; }
+.booking .bill.on { color: var(--ok); }
 .booking {
   position: relative; background: var(--card);
   border: 1px solid var(--line); border-radius: var(--r);
-  padding: 14px 16px 12px; margin-bottom: 10px; box-shadow: var(--shadow);
+  padding: 14px 46px 12px 16px; margin-bottom: 10px; box-shadow: var(--shadow);
   transition: box-shadow var(--fade), border-color var(--fade);
 }
 .booking:hover { box-shadow: var(--shadow-lg); }
@@ -957,3 +964,24 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 /* Both names in the overview too, the local one under the leading one. */
 .ovstops .ov-name { min-width: 0; }
 .ovstops .ov-name small { display: block; color: var(--dim); font-size: 12.5px; }
+
+/* Print sits in the corner of the overview, above the trip name rather than
+   beside it, since the name now takes the whole first row. */
+.ov-head { position: relative; padding-right: 44px; }
+.ov-head #printBtn { position: absolute; right: 0; top: 0; }
+.ov-head #printBtn svg { width: 19px; height: 19px; fill: currentColor; }
+
+/* The address under the field it belongs to, in both languages. */
+.act-addr { color: var(--dim); }
+.act-addr + .act-addr { color: var(--fg); opacity: .75; }
+
+/* A flight number can be five characters and a space. It was being squeezed
+   to three by everything else on the row. */
+.head .f-ref { min-width: 11ch; }
+
+/* iOS zooms the whole page in whenever a focused field is under 16px, which
+   turned opening any dialog into a jump-and-keyboard. Only on touch, so the
+   desktop layout keeps its own scale. */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px; }
+}

@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v50';
+const BUILD = 'v51';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -69,6 +69,10 @@ function ask({ title, body = '', confirm = 'Confirm', danger = false }) {
   ok.textContent = confirm;
   ok.className = danger ? 'danger-solid' : 'primary';
   const dlg = $('#ask');
+  // showModal() throws on an already-open dialog, and the throw comes out of
+  // whatever click asked the question - so the button looks dead. Close the
+  // stale one first, which resolves its promise false on the way out.
+  if (dlg.open) dlg.close('');
   dlg.returnValue = '';
   dlg.showModal();
   return new Promise(res => { askResolve = () => res(dlg.returnValue === 'ok'); });
@@ -213,7 +217,6 @@ async function optimize() {
 
 /* ---------- map (Leaflet + OpenStreetMap tiles) ---------- */
 let map, layer;
-const WALK_COLOUR = '#f59e0b';
 /** The accent as the stylesheet currently has it, so the map follows the theme. */
 const rideColour = () =>
   getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3388ff';
@@ -267,15 +270,14 @@ function drawMap() {
       any = true;
       const walk = String(s.mode || '').toUpperCase() === 'WALK';
       drawn.push(...line);
-      // Walking is a round-dotted amber trail and riding a solid accent line,
-      // so which is which reads at a glance rather than from line weight.
-      // Both at full opacity: it is the tiles underneath that give way.
+      // Back to a plain dashed line in the same colour as the ride, which read
+      // better than the amber dots that replaced it. Visibility comes from the
+      // tiles being held back instead, which costs the line nothing.
       L.polyline(line, {
-        color: walk ? WALK_COLOUR : rideColour(),
-        weight: walk ? 6 : 5,
-        opacity: 1,
-        dashArray: walk ? '1 12' : null,
-        lineCap: 'round', lineJoin: 'round',
+        color: rideColour(),
+        weight: walk ? 3 : 4,
+        opacity: walk ? 0.6 : 0.9,
+        dashArray: walk ? '4 6' : null,
       }).addTo(layer);
     }
     // No shape, so say only what is certain: these two stops are connected.
@@ -633,9 +635,11 @@ function attachSearch(input, { onPick, onDetails, bias, tags, clearOnPick = fals
       otherName(asked.q, { near: asked.near, tags }, h.osmId),
       openingHours(h.osmId),
     ]).then(([n, o]) => {
-      const localName = n.status === 'fulfilled' && n.value !== h.name ? n.value : null;
+      const other = n.status === 'fulfilled' ? n.value : null;
+      const localName = other?.name && other.name !== h.name ? other.name : null;
+      const localAddress = other?.label && other.label !== h.label ? other.label : null;
       const hours = o.status === 'fulfilled' ? o.value : null;
-      if (localName || hours) onDetails(h, { localName, hours });
+      if (localName || localAddress || hours) onDetails(h, { localName, localAddress, hours });
     });
   };
 
@@ -757,6 +761,8 @@ const KIND_CFG = {
 };
 const cfgFor = kind => KIND_CFG[kind] || KIND_CFG.Other;
 const ICON = { Flight: '✈', Train: '🚆', Bus: '🚌', Ferry: '⛴', Car: '🚗', Hotel: '🏨', Other: '📌' };
+const BILL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12a1 1 0 0 1 1 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 0 1 1-1zm2 5v2h8V7H8zm0 4v2h8v-2H8z"/></svg>';
+const BILLED_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12a1 1 0 0 1 1 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 0 1 1-1zm9.3 5.3L11 11.6 8.7 9.3 7.3 10.7l3.7 3.7 5.7-5.7-1.4-1.4z"/></svg>';
 const isStay = k => k === 'Hotel';
 const dateOf = dt => (dt || '').slice(0, 10);
 
@@ -828,7 +834,7 @@ function journeyLabel(b) {
   return `${end(b.start)}  →  ${b.end ? end(b.end) : '?'}`;
 }
 
-function bookingCard(b, { showDate = false } = {}) {
+function bookingCard(b) {
   const stay = isStay(b.kind);
   const cfg = cfgFor(b.kind);
   const billed = state.expenses.some(e => e.src === b.id);
@@ -843,12 +849,13 @@ function bookingCard(b, { showDate = false } = {}) {
       ${stay
         ? `<span class="ac grow"><input class="f-ref" value="${esc(b.ref || '')}" placeholder="Search a hotel…" autocomplete="off"></span>`
         : `<input class="f-ref grow" value="${esc(b.ref || '')}" placeholder="${esc(cfg.ref)}">`}
-      ${showDate && b.start ? `<span class="when-chip">${esc(fmtDayLabel(b.start))}</span>` : ''}
       ${orphan ? '<span class="chip warn" title="This booking is not on any day of the trip">off-trip</span>' : ''}
       <span class="spacer"></span>
-      <button class="bill${billed ? ' on' : ''}"${+b.cost > 0 ? '' : ' disabled'}
-        title="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}">${billed ? '✓ expensed' : '+ expense'}</button>
-      <button class="x" title="Remove">✕</button>
+      <button class="x" type="button" title="Remove">✕</button>
+      <button class="bill icon${billed ? ' on' : ''}" type="button"${+b.cost > 0 ? '' : ' disabled'}
+        title="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}"
+        aria-label="${billed ? 'Remove from expenses' : 'Add this cost to expenses'}"
+        aria-pressed="${billed}">${billed ? `${BILLED_SVG}` : `${BILL_SVG}`}</button>
     </div>
 
     <div class="brow${b.kind === 'Flight' ? ' flight-route' : ''}">
@@ -965,6 +972,12 @@ function bookingCard(b, { showDate = false } = {}) {
           b[key] = shown;
           b[pointKey] = { lat: h.lat, lng: h.lng, name: h.name, address: h.label };
           save();
+          // The card wants to say how long the flight takes, and that needs the
+          // zone at each end. Asked for on the pick rather than waiting for the
+          // first recalculation on the Day plan.
+          timeZoneAt(h)
+            .then(tz => { b[`${key}Tz`] = tz; save(); renderItinerary(); })
+            .catch(() => {});
         },
       });
     };
@@ -1037,7 +1050,7 @@ function renderItinerary() {
     );
     if (!d) list.prepend(hintRow('This day has no date, so every booking is listed. Set one under ⋯.'));
   } else {
-    list.replaceChildren(...shown.map(b => bookingCard(b, { showDate: true })));
+    list.replaceChildren(...shown.map(b => bookingCard(b)));
     if (!shown.length) {
       list.append(emptyRow(q
         ? `Nothing matches "${itinQuery}".`
@@ -1323,11 +1336,17 @@ function hoursWarning(d, it, row) {
  * Shown as OpenStreetMap wrote them. Rephrasing would hide the parts this app
  * cannot read, and those are exactly the parts worth reading yourself.
  */
-function showActHours() {
-  const el = $('#actHours');
-  const spec = actPicked?.hours;
-  el.hidden = !spec;
-  el.textContent = spec ? `Opening hours  ${spec}` : '';
+function showActDetails() {
+  const line = (sel, text) => {
+    const el = $(sel);
+    el.hidden = !text;
+    el.textContent = text || '';
+  };
+  line('#actAddr', actPicked?.address || actPicked?.label || '');
+  // The address as the signs write it, for the half of finding a place that
+  // happens after you have stopped looking at the phone.
+  line('#actAddrLocal', actPicked?.localAddress || '');
+  line('#actHours', actPicked?.hours ? `Opening hours  ${actPicked.hours}` : '');
 }
 
 function openActivity(i) {
@@ -1337,22 +1356,23 @@ function openActivity(i) {
   if (!it) return;
   actPicked = isPlace(it)
     ? { name: it.name, address: it.address, lat: it.lat, lng: it.lng,
-        localName: it.localName, hours: it.hours }
+        localName: it.localName, localAddress: it.localAddress, hours: it.hours }
     : null;
   $('#actTitle').textContent = actNew ? 'Add to this day' : (isPlace(it) ? 'Stop' : 'Activity');
-  $('#actAddr').textContent = it.address || '';
-  $('#actAddr').hidden = !it.address;
+
   $('#actName').value = it.name || '';
   $('#actName').removeAttribute('aria-invalid');
   $('#actError').textContent = '';
   $('#actError').hidden = true;
   $('#actMin').value = it.stayMin ?? 60;
   $('#actNotes').value = it.notes || '';
-  showActHours();
+  showActDetails();
   $('#actDelete').hidden = actNew;
   $('#actDlg').returnValue = '';
   $('#actDlg').showModal();
-  $('#actName').focus();
+  // Deliberately not focused. On a phone that threw the keyboard up and
+  // zoomed the page in before you had even read the dialog; on a stop you are
+  // only checking, the field is the last thing you want.
 }
 
 /** Reads the dialog back into the item. Returns true if routing must redo. */
@@ -1368,8 +1388,12 @@ function commitActivity() {
     it.address = actPicked.address || actPicked.label;
     it.lat = actPicked.lat;
     it.lng = actPicked.lng;
+    // A different place is not called that any more, so a missing value clears
+    // rather than leaving the last one behind.
     if (actPicked.localName) it.localName = actPicked.localName;
-    else delete it.localName;        // a different place, so not its name any more
+    else delete it.localName;
+    if (actPicked.localAddress) it.localAddress = actPicked.localAddress;
+    else delete it.localAddress;
     if (actPicked.hours) it.hours = actPicked.hours;
     else delete it.hours;
   }
@@ -1389,14 +1413,14 @@ attachSearch($('#actName'), {
   onPick: h => {
     actPicked = { ...h, address: h.label };
     $('#actName').value = h.name;
-    $('#actAddr').textContent = h.label;
-    $('#actAddr').hidden = !h.label;
+    showActDetails();
   },
   onDetails: (h, extra) => {
     if (actPicked?.osmId !== h.osmId) return;
     if (extra.localName) actPicked.localName = extra.localName;
+    if (extra.localAddress) actPicked.localAddress = extra.localAddress;
     if (extra.hours) actPicked.hours = extra.hours;
-    showActHours();
+    showActDetails();
   },
 });
 

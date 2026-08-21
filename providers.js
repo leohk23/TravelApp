@@ -141,7 +141,7 @@ export async function otherName(q, opts, osmId, signal) {
   if (!q || !osmId) return null;
   const hits = await search(q, { ...opts, lang: null }, signal).catch(() => []);
   const hit = hits.find(h => h.osmId === osmId);
-  return hit?.name || null;
+  return hit ? { name: hit.name || null, label: hit.label || null } : null;
 }
 
 /**
