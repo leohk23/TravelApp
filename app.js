@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v57';
+const BUILD = 'v58';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -335,6 +335,44 @@ function drawMap() {
 
   const bounds = [...places.map(p => [p.lat, p.lng]), ...drawn];
   map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+}
+
+/**
+ * Swipe the day plan sideways to change day.
+ *
+ * An accelerator, never the only way: the tabs above still do it, and a
+ * gesture nobody can see must not be the sole route to anything.
+ *
+ * `touch-action: pan-y` on the pane is what makes it work at all. It leaves
+ * vertical scrolling to the browser and stops it claiming horizontal drags,
+ * so the pointer stream survives long enough to tell a swipe from a scroll.
+ * The map is excluded on purpose - Leaflet needs to be panned sideways.
+ */
+{
+  const pane = $('#planPane');
+  const MIN_X = 60;         // shorter than this is a tap that wandered
+  let id = null, x0 = 0, y0 = 0;
+
+  pane.addEventListener('pointerdown', e => {
+    // Mouse drags on a desktop are far more often a selection than a swipe.
+    if (e.pointerType === 'mouse') return;
+    // A stop being dragged by its grip, or a field being used, is not a swipe.
+    if (e.target.closest('.grip, input, select, textarea')) return;
+    id = e.pointerId; x0 = e.clientX; y0 = e.clientY;
+  });
+  // pointercancel is the browser saying it has taken the gesture for a scroll.
+  // There is deliberately no pointerleave: a touch is implicitly captured, so
+  // leaving the pane mid-swipe is normal and dropping it there would lose every
+  // swipe that runs off the edge of the screen.
+  pane.addEventListener('pointercancel', () => { id = null; });
+  pane.addEventListener('pointerup', e => {
+    if (e.pointerId !== id) return;
+    id = null;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    // Mostly sideways, or it was someone scrolling who drifted.
+    if (Math.abs(dx) < MIN_X || Math.abs(dx) < Math.abs(dy) * 2) return;
+    goDay(state.dayIdx + (dx < 0 ? 1 : -1), dx < 0 ? 'fwd' : 'back');
+  });
 }
 
 /* ---------- plan/map views and resizable split ---------- */
@@ -730,6 +768,26 @@ function attachSearch(input, { onPick, onDetails, bias, tags, clearOnPick = fals
 }
 
 /* ---------- day tabs (shared by Itinerary and Day plan) ---------- */
+
+/**
+ * Open a day, and say which way you came.
+ *
+ * The short slide is the only thing that tells you a swipe worked: the plan
+ * for two days of a trip can look much alike, and a screen that changes with
+ * no motion reads as a screen that did not change.
+ */
+function goDay(i, from = null) {
+  if (i < 0 || i >= state.days.length || i === state.dayIdx) return false;
+  const back = from ? from === 'back' : i < state.dayIdx;
+  state.dayIdx = i;
+  save(); render();
+  if (state.tab === 'local') prepareDayPlan(day());
+  const list = $('#stops');
+  list.classList.remove('slide-back', 'slide-fwd');
+  void list.offsetWidth;                      // restart the animation
+  list.classList.add(back ? 'slide-back' : 'slide-fwd');
+  return true;
+}
 function renderDays() {
   const tabs = $('#dayTabs');
   tabs.innerHTML = '';
@@ -740,10 +798,7 @@ function renderDays() {
     // Just the number. Which date and city that is reads underneath, where
     // there is room to spell it out instead of abbreviating it to fit a pill.
     b.textContent = `Day ${i + 1}`;
-    b.onclick = () => {
-      state.dayIdx = i; save(); render();
-      if (state.tab === 'local') prepareDayPlan(d);
-    };
+    b.onclick = () => goDay(i);
     tabs.append(b);
   });
   const add = document.createElement('button');
@@ -974,13 +1029,15 @@ function bookingCard(b) {
 
     <div class="brow">
       <label>${esc(cfg.conf)}<input class="f-conf" value="${esc(b.conf || '')}" placeholder="optional"></label>
-      <label class="cost-lbl">Paid
+      <span class="cost-lbl"><span class="fld-k">Paid</span>
         <select class="f-cur" aria-label="Currency paid in">${currencyOptions(currency)}</select>
-        <input type="number" class="f-cost" step="0.01" min="0" size="8" value="${b.cost || ''}">
-      </label>
-      ${foreign ? `<label class="rate-lbl" title="What one ${esc(currency)} cost you in ${esc(state.currency)}">Rate
+        <input type="number" class="f-cost" step="0.01" min="0" size="8" value="${b.cost || ''}"
+          aria-label="Amount paid"></span>
+      ${foreign ? `<span class="rate-lbl" title="What one ${esc(currency)} cost you in ${esc(state.currency)}">
+        <span class="fld-k">Rate</span>
         <input type="number" class="f-rate" step="0.0001" min="0" size="7" value="${b.rate || ''}"
-          placeholder="${esc(state.currency)} per ${esc(currency)}"></label>` : ''}
+          aria-label="${esc(state.currency)} per ${esc(currency)}"
+          placeholder="${esc(state.currency)} per ${esc(currency)}"></span>` : ''}
       ${foreign ? (converted === null
         ? '<span class="chip warn">Rate needed to total this</span>'
         : `<span class="converted">= ${esc(fmtMoney(converted, state.currency))}</span>`) : ''}

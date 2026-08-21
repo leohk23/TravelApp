@@ -1006,7 +1006,15 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 /* Paid in, and what it came to. The rate is what your card was charged at, so
    it is typed rather than looked up - a rate fetched today is a different
    number from the one you actually paid. */
-.cost-lbl, .rate-lbl { gap: 6px; }
+/* Spans, not labels. A <label> may own exactly one control, and this one was
+   wrapped round three - the word, a select and an amount. iOS forwards a
+   touch anywhere on a label to the control it owns, so a drag starting on the
+   blank part of the row was handed to the currency picker and the pane never
+   got to scroll. Each control now carries its own aria-label instead. */
+.cost-lbl, .rate-lbl {
+  display: inline-flex; gap: 6px; align-items: center; font-size: 13px;
+}
+.fld-k { color: var(--dim); }
 .cost-lbl .f-cur { width: 9ch; padding: 8px 4px; }
 .cost-lbl .f-cost { width: 12ch; }
 .rate-lbl .f-rate { width: 10ch; }
@@ -1073,4 +1081,24 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
    so it does not share the colour. */
 .chip.danger {
   background: var(--bad); color: #fff; border-color: transparent; font-weight: 650;
+}
+
+/* ---------- swiping between days ---------- */
+/* pan-y keeps vertical scrolling with the browser while leaving horizontal
+   drags to us. Without it the gesture is taken for a scroll and cancelled
+   before it can be recognised. */
+#planPane { touch-action: pan-y; }
+
+@keyframes day-fwd {
+  from { transform: translateX(26px); opacity: .35; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes day-back {
+  from { transform: translateX(-26px); opacity: .35; }
+  to { transform: none; opacity: 1; }
+}
+#stops.slide-fwd { animation: day-fwd 190ms ease-out; }
+#stops.slide-back { animation: day-back 190ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  #stops.slide-fwd, #stops.slide-back { animation: none; }
 }

@@ -48,6 +48,11 @@ the browser, which is why it needs an HTTP server rather than `file://`.
   introduce a diffing layer or a framework because a render feels wasteful.
 - Cache remote results in `state` (legs already persist) rather than re-fetching
   on every render. These are volunteer-run servers.
+- **A `<label>` owns exactly one control.** iOS forwards a touch anywhere on a
+  label to the control it owns, so a label wrapped round a word, a select and
+  an input hands a drag on the blank part of the row to the picker and the pane
+  never scrolls. Wrap one control, or use a span and give each control its own
+  `aria-label`.
 - `[hidden] { display: none !important }` is load-bearing. Without it, any
   `display:` rule on the same element silently defeats the `hidden` attribute —
   which is exactly how the three ribbon sections once all rendered at once.
