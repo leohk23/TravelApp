@@ -151,7 +151,15 @@ Everything network-facing is in `providers.js`:
 - **Transitous** (`api.transitous.org`, a MOTIS instance) — transit routing.
   Returns a pareto set, not a sorted list, so `route()` picks earliest arrival.
   No fare data, and its `one-to-many` matrix endpoint rejected every coordinate
-  format tried.
+  format tried. An empty plan is usually not "nothing runs" but "one end is not
+  on the walking network": an airport publishes a reference point, and Fukuoka's
+  is out on the runway. On empty, `route()` asks `map/stops` what stops are
+  within 3 km of each end and `strandedStop()` picks one — only for an end with
+  nothing inside 400 m, and only a **rail** stop, because the closest stop to
+  Fukuoka Airport is a coach stand to Kumamoto that turned an 11-minute subway
+  ride into 72. The leg carries `startedAt`/`endedAt` so the journey view can
+  say the clock starts at the station. Two extra requests, never on the happy
+  path.
 - **MTR fares** (`data/mtr-fares.json`) — the one city with *exact* fares.
   MTR publishes its full station-to-station table as open CSV with no key, so
   `tools/make-mtr-fares.mjs` commits it and `exactFare()` prices Hong Kong

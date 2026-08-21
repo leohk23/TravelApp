@@ -316,6 +316,35 @@ const kmBetween = (a, b) => {
   return 2 * R * Math.asin(Math.sqrt(s));
 };
 
+// Rail carries the airport traffic. The nearest stop to Fukuoka Airport is a
+// coach stand whose one route runs to Kumamoto, and starting there turned an
+// eleven-minute subway ride into a seventy-two-minute round trip.
+const RAIL_MODES = new Set(['RAIL', 'REGIONAL_RAIL', 'HIGHSPEED_RAIL', 'LONG_DISTANCE',
+  'NIGHT_RAIL', 'SUBWAY', 'METRO', 'TRAM', 'MONORAIL', 'FUNICULAR']);
+
+/**
+ * The station to route from when the router could not start from a point.
+ *
+ * An airport publishes a reference point, not a door. Fukuoka's sits out on
+ * the runway with no footpath touching it, so the router had nowhere to begin
+ * and said there was no route to a hotel the subway reaches in eleven minutes.
+ *
+ * A point with a stop on its doorstep is not stranded and is left alone, or a
+ * hotel would be moved to the station and quietly lose its final walk.
+ * Returns null when there is nothing better, which keeps "no route" honest.
+ */
+export function strandedStop(point, stops, { strandedM = 400, reachM = 3000 } = {}) {
+  if (!point || !stops?.length) return null;
+  const near = stops
+    .filter(s => s && s.lat != null && s.lng != null)
+    .map(s => ({ s, m: kmBetween(point, s) * 1000 }))
+    .sort((a, b) => a.m - b.m);
+  if (!near.length || near[0].m <= strandedM) return null;
+  const rail = near.find(({ s, m }) => m <= reachM
+    && (s.modes || []).some(mode => RAIL_MODES.has(String(mode).toUpperCase())));
+  return rail ? rail.s : null;
+}
+
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;

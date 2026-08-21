@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
+import { settleUp, optimizeOrder, scheduleDay, placePairs, isPlace, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtTime, fmtDur, fmtStay } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -306,6 +306,30 @@ for (const c of FARES.cities) {
   }
 }
 
+// --- a point the walking network cannot reach falls back to a station ---
+// Real stops from the router, around Fukuoka Airport's published coordinate.
+const FUK_PT = { lat: 33.5859, lng: 130.4506 };
+const FUK_STOPS = [
+  { name: "\u798F\u5CA1\u7A7A\u6E2F\u56FD\u969B\u7DDA\u30BF\u30FC\u30DF\u30CA\u30EB", lat: 33.58468, lng: 130.44376, modes: ["BUS"] },
+  { name: "\u798F\u5CA1\u7A7A\u6E2F", lat: 33.597324, lng: 130.44818, modes: ["REGIONAL_RAIL"] },
+  { name: "\u798F\u5CA1\u7A7A\u6E2F\u56FD\u5185\u7DDA\u30BF\u30FC\u30DF\u30CA\u30EB", lat: 33.599438, lng: 130.44731, modes: ["BUS"] },
+];
+assert.equal(strandedStop(FUK_PT, FUK_STOPS).name, "\u798F\u5CA1\u7A7A\u6E2F",
+  "the nearest stop is a coach stand 648 m away; the station 1.3 km away is the useful one");
+
+// A hotel with a stop on its doorstep must be left where it is, or the walk
+// off the end of the journey quietly disappears.
+assert.equal(strandedStop({ lat: 33.591, lng: 130.4184 }, [
+  { name: "\u535A\u591A\u30D0\u30B9\u30BF\u30FC\u30DF\u30CA\u30EB", lat: 33.5921, lng: 130.4198, modes: ["BUS"] },
+  { name: "\u535A\u591A", lat: 33.5898, lng: 130.4207, modes: ["REGIONAL_RAIL"] },
+], { strandedM: 400 }), null, "a stop 150 m away means the point is reachable");
+
+assert.equal(strandedStop(FUK_PT, FUK_STOPS.filter(s => !s.modes.includes("REGIONAL_RAIL"))), null,
+  "buses only, so no estimate rather than a coach to the next prefecture");
+assert.equal(strandedStop(FUK_PT, []), null, "nothing to snap to");
+assert.equal(strandedStop(null, FUK_STOPS), null, "no point, no stop");
+assert.equal(strandedStop(FUK_PT, FUK_STOPS, { reachM: 800 }), null,
+  "a station further than you would go to reach it is no help");
 // --- a flight has two clocks, and the gap between them is not the flight ---
 const HK = "Asia/Hong_Kong", JP = "Asia/Tokyo";
 assert.equal(flightSeconds("2026-09-12T08:20", "2026-09-12T13:05", HK, JP), (3 * 60 + 45) * 60,

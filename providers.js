@@ -11,9 +11,10 @@
 const PHOTON = 'https://photon.komoot.io/api/';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 const MOTIS = 'https://api.transitous.org/api/v1/plan';
+const MOTIS_STOPS = 'https://api.transitous.org/api/v1/map/stops';
 const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast';
 
-import { matchAirports } from './logic.js';
+import { matchAirports, strandedStop } from './logic.js';
 
 const num = v => (typeof v === 'number' ? v : Number(v));
 
@@ -183,13 +184,30 @@ function legLabel(l) {
  * time spent waiting at the stop is included - that is what a timeline needs.
  */
 export async function route(from, to, when, signal) {
-  const u = new URL(MOTIS);
-  u.searchParams.set('fromPlace', `${from.lat},${from.lng}`);
-  u.searchParams.set('toPlace', `${to.lat},${to.lng}`);
-  u.searchParams.set('time', when.toISOString());
+  const plan = async (a, b) => {
+    const u = new URL(MOTIS);
+    u.searchParams.set('fromPlace', `${a.lat},${a.lng}`);
+    u.searchParams.set('toPlace', `${b.lat},${b.lng}`);
+    u.searchParams.set('time', when.toISOString());
+    const res = await getJSON(u, signal);
+    return [...(res.itineraries || []), ...(res.direct || [])];
+  };
 
-  const res = await getJSON(u, signal);
-  const options = [...(res.itineraries || []), ...(res.direct || [])];
+  let options = await plan(from, to);
+  let startedAt = null, endedAt = null;
+
+  // Nothing at all usually means one end sits where the walking network never
+  // reaches, which is exactly what an airport reference point out on the
+  // runway is. Only then is it worth two more requests to find a station to
+  // start from; a journey that simply does not run still answers no route.
+  if (!options.length) {
+    const [ns, nd] = await Promise.all([stopsNear(from, signal), stopsNear(to, signal)]);
+    const a = strandedStop(from, ns), b = strandedStop(to, nd);
+    if (a || b) {
+      options = await plan(a || from, b || to);
+      if (options.length) { startedAt = a?.name || null; endedAt = b?.name || null; }
+    }
+  }
   if (!options.length) return null;
 
   // Earliest arrival wins; MOTIS returns a pareto set, not a sorted list.
@@ -226,7 +244,24 @@ export async function route(from, to, when, signal) {
     // to read. Some publish a link to their fare page, which is the next best.
     fare: null,
     fareUrl: ridden.find(l => l.agencyFareUrl)?.agencyFareUrl || null,
+    // Set when an end had to be moved to a station to be routable at all, so
+    // the journey view can say where the clock really starts.
+    startedAt, endedAt,
   };
+}
+
+/**
+ * Stops the router knows about within about 3 km of a point, from MOTIS's own
+ * stop index. Only reached when a plan came back empty, so it costs nothing
+ * on the ordinary path.
+ */
+async function stopsNear(pt, signal, km = 3) {
+  const d = km / 111;
+  const u = new URL(MOTIS_STOPS);
+  u.searchParams.set('min', `${pt.lat - d},${pt.lng - d}`);
+  u.searchParams.set('max', `${pt.lat + d},${pt.lng + d}`);
+  const j = await getJSON(u, signal).catch(() => null);
+  return Array.isArray(j) ? j.map(s => ({ ...s, lng: s.lon })) : [];
 }
 
 /** Metres between two points. Used to order stops when no transit matrix is free. */

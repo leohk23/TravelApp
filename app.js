@@ -1058,10 +1058,14 @@ function openJourney(d, row) {
 
   $('#jTitle').textContent = `${d.items[row.from].name} to ${d.items[row.to].name}`;
   const transfers = leg.transfers ?? 0;
+  // An end with no footpath to it is routed from the nearest station instead,
+  // so say so rather than letting the figure look like door to door.
+  const moved = [leg.startedAt && `from ${leg.startedAt}`, leg.endedAt && `to ${leg.endedAt}`]
+    .filter(Boolean).join(' and ');
   $('#jSub').textContent = [
     fmtDur(leg.seconds),
     transfers ? `${transfers} change${transfers > 1 ? 's' : ''}` : 'no changes',
-  ].join(', ');
+  ].join(', ') + (moved ? `. Timed ${moved}, the nearest station.` : '');
 
   const steps = leg.steps || [];
   const rows = [];
