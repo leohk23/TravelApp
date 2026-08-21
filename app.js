@@ -2011,7 +2011,33 @@ function openDayDlg() {
   if (!$('#dayDlg').open) $('#dayDlg').showModal();   // showModal throws if already open
 }
 
+/**
+ * The selected day's hours, on their own line under the calendar.
+ *
+ * They started life as two more cells in the table, which left the city with
+ * about eight characters to live in. Only one day is being looked at anyway,
+ * so they belong beside the calendar rather than repeated on every row.
+ */
+function renderDayHours() {
+  const d = day();
+  $('#ddHoursDay').textContent = `Day ${state.dayIdx + 1}`;
+  $('#ddStart').value = d?.start || '';
+  $('#ddEnd').value = d?.end || '';
+}
+
+$('#ddStart').onchange = e => {
+  const d = day();
+  d.start = e.target.value || '09:00';
+  save(); render(); renderDayHours();
+  recalc();                     // the whole plan hangs off the start time
+};
+$('#ddEnd').onchange = e => {
+  day().end = e.target.value;
+  save(); render(); renderDayHours();   // the end only draws a line, so no refetch
+};
+
 function renderDayTable() {
+  renderDayHours();
   $('#ddRows').replaceChildren(...state.days.map((d, i) => {
     const tr = document.createElement('tr');
     if (i === state.dayIdx) tr.className = 'on';
@@ -2019,9 +2045,7 @@ function renderDayTable() {
       <th><button class="r-go" type="button" title="Open this day">Day ${i + 1}</button></th>
       <td class="r-when">${esc(wkday(d.date))}</td>
       <td><span class="ac"><input class="r-city" value="${esc(d.city || '')}" placeholder="City" autocomplete="off"></span></td>
-      <td class="r-hours"><input type="time" class="r-start" value="${esc(d.start || '')}"
-        aria-label="Day ${i + 1} starts"><span>to</span><input type="time" class="r-end"
-        value="${esc(d.end || '')}" aria-label="Day ${i + 1} ends"></td>
+
       <td><button class="r-fill" type="button" title="Use this city for every later day">↓</button></td>
       <td><button class="r-del x" type="button" title="Delete this day"${state.days.length < 2 ? ' disabled' : ''}>✕</button></td>`;
 
@@ -2050,14 +2074,6 @@ function renderDayTable() {
       save(); render(); renderDayTable();
     };
 
-    // The plan is rebuilt from the new start, so this is a recalculation, not
-    // just a label. The end time only draws a line, so it costs nothing.
-    tr.querySelector('.r-start').onchange = e => {
-      d.start = e.target.value || '09:00';
-      save(); render();
-      if (d === day()) recalc();
-    };
-    tr.querySelector('.r-end').onchange = e => { d.end = e.target.value; save(); render(); };
 
     tr.querySelector('.r-fill').onclick = () => {
       for (let k = i + 1; k < state.days.length; k++) {
