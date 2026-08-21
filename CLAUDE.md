@@ -239,6 +239,20 @@ Everything network-facing is in `providers.js`:
   instant for Transitous without depending on the device timezone.
 - **OpenStreetMap tiles** via Leaflet.
 
+Transitous asks three things of anything using its API, and all three are
+conditions rather than courtesies: the source must be published under an
+open-source licence (MIT, in `LICENSE`); a browser client that cannot set a
+User-Agent must put contact details on its own site (the About dialog links
+the repository); and the visible attribution must point at
+<https://transitous.org/sources/>, not the home page, because the data behind
+it is hundreds of separate operators with their own terms.
+
+Committing their dataset is not an option and the question is settled: Japan
+alone lists 671 operator feeds, routing needs MOTIS to build a binary index
+over the timetables and the OSM street graph, and the feeds are individually
+licensed. Self-hosting MOTIS is their own suggested answer if usage grows,
+and it needs a server this app deliberately does not have.
+
 Nominatim and Transitous are volunteer-run. Debounce, cache, throttle. Both
 return **403 to Node's default User-Agent**, so `providers.js` cannot be
 exercised from a Node script — verify it in a browser.

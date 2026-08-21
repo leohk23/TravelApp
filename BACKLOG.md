@@ -60,6 +60,15 @@ a rename, and booking costs in a foreign currency.
 
 ## Bigger, only if the app sticks
 
+- **Self-host the routing.** Every leg is a live call to Transitous, a service
+  run by volunteers who ask to be contacted before anyone sends serious load.
+  Their own answer to that is to run your own MOTIS instance over their source
+  dataset. Committing the data instead is not an option: Japan alone lists 671
+  operator feeds, routing needs a binary index built over the timetables and the
+  OSM street graph, and the feeds are individually licensed. *Build when this
+  stops being one traveller planning one trip — and talk to them first either
+  way.*
+
 - **Transit-aware Optimise.** Ordering uses straight-line distance, which is
   wrong wherever geography and the network disagree — across a harbour, up a
   hill, along a single rail line. MOTIS has a `one-to-many` endpoint that would

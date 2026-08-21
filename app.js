@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v56';
+const BUILD = 'v57';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -276,7 +276,7 @@ function drawMap() {
       // Held back a little so the route reads over it. The map is context;
       // the line is the answer.
       opacity: 0.72,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, transit <a href="https://transitous.org">Transitous</a>',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, transit <a href="https://transitous.org/sources/">Transitous sources</a>',
     }).addTo(map);
     map.attributionControl.setPosition('bottomleft');   // frees the corner for the button
   }
