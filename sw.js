@@ -7,7 +7,7 @@
 // were being reported against code that no longer existed.
 //
 // VERSION still names the cache so an old one can be cleared on activate.
-const VERSION = 'v44';
+const VERSION = 'v45';
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles-v1';
 const MAX_TILES = 400;          // roughly a city at a couple of zoom levels

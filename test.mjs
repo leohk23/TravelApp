@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -326,6 +326,24 @@ assert.match(fmtMoney(1000, "NOTACODE"), /NOTACODE 1[.,]000/,
 assert.match(fmtMoney(0, "JPY"), /0/, "nothing spent is still an amount");
 assert.match(fmtMoney(undefined, "JPY"), /0/, "a missing amount is zero, not NaN");
 assert.match(fmtMoney(500, ""), /500/, "no currency set, just the number");
+
+// --- the far end of a flight is a stop, but not part of this day's map ---
+const HKG = { name: "HKG", lat: 22.308, lng: 113.9185, flightId: "f1", role: "depart" };
+const FUK = { name: "FUK", lat: 33.5859, lng: 130.4506, flightId: "f1", role: "arrive" };
+const HOTEL = { name: "Hotel", lat: 33.591, lng: 130.4184, hotelId: "h" };
+const SIGHT = { name: "Canal City", lat: 33.5896, lng: 130.4113 };
+
+assert.deepEqual(mapPlaces([HKG, FUK, HOTEL, SIGHT]).map(p => p.name),
+  ["FUK", "Hotel", "Canal City"],
+  "the airport you flew from is 1400 km away and would stretch the map over the sea");
+assert.deepEqual(mapPlaces([HOTEL, SIGHT, FUK, { ...HKG, role: "arrive" }]).map(p => p.name),
+  ["Hotel", "Canal City", "FUK"], "and so would the one you fly home to");
+assert.deepEqual(mapPlaces([HKG, FUK]).map(p => p.name), ["HKG", "FUK"],
+  "a day that is only the flight keeps both ends, because then the flight is the day");
+assert.deepEqual(mapPlaces([HOTEL, SIGHT]).map(p => p.name), ["Hotel", "Canal City"]);
+assert.deepEqual(mapPlaces([{ name: "a note" }, HOTEL]).map(p => p.name), ["Hotel"],
+  "a note has no coordinates and never was on the map");
+assert.deepEqual(mapPlaces([]), []);
 
 // --- which nights you actually sleep somewhere ---
 const stay = { start: "2026-09-12T15:00", end: "2026-09-16T11:00" };

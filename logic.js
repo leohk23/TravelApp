@@ -422,6 +422,30 @@ export function sleepsOn(stay, date) {
   return from <= date && date < to;
 }
 
+/**
+ * The stops worth drawing on a day's map.
+ *
+ * The far end of a flight is a real stop on the day — you were at Hong Kong
+ * airport that morning — but drawing it stretched the map across the East
+ * China Sea and ruled a straight line through it, which says nothing about
+ * the day being planned. An airport far from where the day actually happens
+ * is left off the map; it keeps its place in the plan and its number.
+ *
+ * "Where the day happens" is the stops that came from nowhere but you: the
+ * hotel and the sights. A day that is only airports keeps them all, because
+ * then the flight is the day.
+ */
+export function mapPlaces(items, awayKm = 200) {
+  const places = items.filter(isPlace);
+  const grounded = places.filter(p => !p.flightId);
+  if (!grounded.length) return places;
+  const mid = {
+    lat: grounded.reduce((n, p) => n + p.lat, 0) / grounded.length,
+    lng: grounded.reduce((n, p) => n + p.lng, 0) / grounded.length,
+  };
+  return places.filter(p => !p.flightId || kmBetween(mid, p) <= awayKm);
+}
+
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;

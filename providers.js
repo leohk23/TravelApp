@@ -115,10 +115,32 @@ async function runSearch(q, { near, tags, limit, box, lang }, signal) {
       .join(', ');
     return {
       name, label, lat, lng,
+      // Identity, so the same place can be recognised in another language.
+      // Position cannot do it: reverse geocoding Dazaifu Tenmangu returns a
+      // tree in its grounds.
+      osmId: p.osm_id != null ? `${p.osm_type || ''}${p.osm_id}` : null,
       type: p.type,                                  // photon's normalised bucket
       kind: (p.osm_value || p.osm_key || '').replace(/_/g, ' '),
     };
   });
+}
+
+/**
+ * The same place, named in the local language.
+ *
+ * Photon answers in one language at a time, and `lang=en` is what lets an
+ * English query reach a Japanese name at all. The name on the signs therefore
+ * costs a second request, so it is fetched once for a place you actually add
+ * rather than on every keystroke. Matched back by OSM id.
+ *
+ * Returns null when the local index does not answer to the English query,
+ * which is common enough to be unremarkable.
+ */
+export async function otherName(q, opts, osmId, signal) {
+  if (!q || !osmId) return null;
+  const hits = await search(q, { ...opts, lang: null }, signal).catch(() => []);
+  const hit = hits.find(h => h.osmId === osmId);
+  return hit?.name || null;
 }
 
 /** Resolve a single typed/pasted address. Nominatim ranks better than Photon here. */

@@ -1,5 +1,5 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
-import { search, searchCity, searchAirports, geocode, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, fareKey, estimateFare, fareCity, clockOf, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { search, searchCity, searchAirports, geocode, otherName, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
@@ -30,6 +30,26 @@ const save = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/**
+ * Which of a place's two names to lead with, and which to show underneath.
+ *
+ * A sign at the station says 福岡タワー and your notes say Fukuoka Tower. Both
+ * are worth having, so both are shown; the About setting decides which is the
+ * heading. A place with only one name shows only that.
+ */
+const leadName = it => (state.placeLang === 'local' && it.localName ? it.localName : it.name);
+const altName = it => (state.placeLang === 'local' && it.localName ? it.name : it.localName);
+
+/**
+ * What a stop is marked with, in the plan and on the map alike.
+ *
+ * A stop that came from a booking says what it is - you recognise your hotel
+ * faster than you recognise that it was number 1. Everything else keeps its
+ * number, and the numbering still counts the marked ones so the two views
+ * never disagree about which stop is which.
+ */
+const stopMark = (it, n) => (it.flightId ? (it.role === 'arrive' ? '🛬' : '🛫')
+  : it.hotelId ? '🏨' : String(n));
 /** Only worth labelling days by city when the trip actually visits more than one. */
 const multiCity = () => new Set(state.days.map(d => d.city).filter(Boolean)).size > 1;
 
@@ -202,13 +222,22 @@ function drawMap() {
     map.attributionControl.setPosition('bottomleft');   // frees the corner for the button
   }
   layer?.remove();
-  const places = d.items.filter(isPlace);
+  // Numbered against every stop, drawn for the ones that belong on this map,
+  // so a pin and its row in the plan never disagree about which stop it is.
+  const all = d.items.filter(isPlace);
+  const places = mapPlaces(d.items);
   if (!places.length) return;
 
-  layer = L.layerGroup(places.map((p, i) => L.marker([p.lat, p.lng], {
-    icon: L.divIcon({ className: 'pin', html: String(i + 1), iconSize: [24, 24] }),
-    title: p.name,
-  }).bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.address || '')}`))).addTo(map);
+  layer = L.layerGroup(places.map(p => {
+    const mark = stopMark(p, all.indexOf(p) + 1);
+    const glyph = mark.length > 1;          // an emoji, not a number
+    return L.marker([p.lat, p.lng], {
+      icon: L.divIcon({ className: `pin${glyph ? ' glyph' : ''}`, html: mark, iconSize: [24, 24] }),
+      title: leadName(p),
+    }).bindPopup(`<b>${esc(leadName(p))}</b>`
+      + (altName(p) ? `<br>${esc(altName(p))}` : '')
+      + (p.address ? `<br><small>${esc(p.address)}</small>` : ''));
+  })).addTo(map);
   L.polyline(places.map(p => [p.lat, p.lng]), { weight: 3, opacity: 0.6 }).addTo(layer);
   map.fitBounds(places.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 15 });
 }
@@ -477,13 +506,13 @@ async function biasPoint(d = day()) {
  * `bias` is async so it can geocode the day's city on first use.
  * `find` overrides the default place search (city search uses this).
  */
-function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) {
+function attachSearch(input, { onPick, onOtherName, bias, tags, clearOnPick = false, find }) {
   const list = document.createElement('ul');
   list.className = 'ac-list';
   list.hidden = true;
   list._owner = input;
 
-  let timer, abort, hits = [], cursor = -1;
+  let timer, abort, hits = [], cursor = -1, asked = null;
 
   const place = () => {
     // A modal <dialog> paints in the top layer, which z-index cannot reach, so a
@@ -547,6 +576,14 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
     onPick(h);
     if (clearOnPick) input.value = '';
     hits = []; hide();
+
+    // The name on the signs, fetched only for a place actually being added.
+    // Deliberately after onPick: the dialog fills straight away and this
+    // arrives when it arrives, or never, without holding anything up.
+    if (!onOtherName || !h.osmId || !asked) return;
+    otherName(asked.q, { near: asked.near, tags }, h.osmId)
+      .then(name => { if (name && name !== h.name) onOtherName(h, name); })
+      .catch(() => {});
   };
 
   input.oninput = () => {
@@ -557,11 +594,13 @@ function attachSearch(input, { onPick, bias, tags, clearOnPick = false, find }) 
       abort?.abort();
       abort = new AbortController();
       try {
+        const near = await bias?.();
+        asked = { q, near };            // what the other-language lookup replays
         hits = (find
           ? await find(q, abort.signal)
           // 'local' drops the lang hint, so Photon answers with the name on the
           // signs: bilingual in Hong Kong, Japanese in Japan.
-          : await search(q, { near: await bias?.(), tags,
+          : await search(q, { near, tags,
               lang: state.placeLang === 'local' ? null : 'en' }, abort.signal)
         ).slice(0, 6);   // fits without scrolling, see the pointerdown note above
         cursor = -1;
@@ -1057,12 +1096,13 @@ function itemRow(d, row, ord) {
   const sub = it.notes || (row.place ? it.address : '') || '';
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
-    <div class="marker">${it.flightId ? (it.role === 'arrive' ? '🛬' : '🛫') : it.hotelId ? '🏨' : row.place ? ord.get(row.i) : '•'}</div>
+    <div class="marker">${row.place ? stopMark(it, ord.get(row.i)) : '•'}</div>
     <div class="when">${fmtTime(row.arrive)}${
       it.atTz && it.atTz !== d.timeZone ? `<small class="tz">${esc(zoneLabel(it.atTz))} time</small>`
       : row.depart !== row.arrive ? `<small>${fmtTime(row.depart)}</small>` : ''}</div>
     <button class="what-btn" type="button">
-      <b>${esc(it.name || (row.place ? 'Unnamed stop' : 'What are you doing?'))}</b>
+      <b>${esc(leadName(it) || (row.place ? 'Unnamed stop' : 'What are you doing?'))}</b>
+      ${altName(it) ? `<small class="alt">${esc(altName(it))}</small>` : ''}
       ${sub ? `<small>${it.notes ? '✎ ' : ''}${esc(sub)}</small>` : ''}
     </button>
     ${fmtStay(it.stayMin ?? 60) ? `<span class="dur-chip">${fmtStay(it.stayMin ?? 60)}</span>` : ''}`;
@@ -1160,7 +1200,9 @@ function openActivity(i) {
   actIdx = i;
   const it = actNew ? { name: '', stayMin: 60 } : day().items[i];
   if (!it) return;
-  actPicked = isPlace(it) ? { name: it.name, address: it.address, lat: it.lat, lng: it.lng } : null;
+  actPicked = isPlace(it)
+    ? { name: it.name, address: it.address, lat: it.lat, lng: it.lng, localName: it.localName }
+    : null;
   $('#actTitle').textContent = actNew ? 'Add to this day' : (isPlace(it) ? 'Stop' : 'Activity');
   $('#actAddr').textContent = it.address || '';
   $('#actAddr').hidden = !it.address;
@@ -1189,6 +1231,8 @@ function commitActivity() {
     it.address = actPicked.address || actPicked.label;
     it.lat = actPicked.lat;
     it.lng = actPicked.lng;
+    if (actPicked.localName) it.localName = actPicked.localName;
+    else delete it.localName;        // a different place, so not its name any more
   }
   const notes = $('#actNotes').value.trim();
   if (notes) it.notes = notes; else delete it.notes;
@@ -1208,6 +1252,9 @@ attachSearch($('#actName'), {
     $('#actName').value = h.name;
     $('#actAddr').textContent = h.label;
     $('#actAddr').hidden = !h.label;
+  },
+  onOtherName: (h, name) => {
+    if (actPicked?.osmId === h.osmId) actPicked.localName = name;
   },
 });
 
@@ -1511,7 +1558,7 @@ function renderOverview() {
       ).join('<br>')}</span></div>` : ''}
 
       ${d.items.length ? `<ol class="ovstops">${rows.filter(r => r.type === 'item').map(r => `
-        <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span>${esc(d.items[r.i].name || '—')}</li>`
+        <li${r.place ? '' : ' class="note"'}><span class="t">${fmtTime(r.arrive)}</span>${esc(leadName(d.items[r.i]) || '—')}</li>`
       ).join('')}</ol>` : '<div class="ovline dim">Nothing planned yet</div>'}`;
 
     li.onclick = () => { state.dayIdx = i; save(); render(); showTab('local'); };
