@@ -837,7 +837,9 @@ main > section { position: relative; }
 /* A flight is not a routed leg: it is a fact from the booking, so it reads as a
    solid rail rather than the dashed "we looked this up" one. */
 .leg.flight { border-left-style: solid; border-left-color: var(--accent); }
-.leg.flight .via { cursor: default; }
+/* A flight number is short, so it sits beside the duration instead of taking
+   the full-width second line a wrapping journey summary needs. */
+.leg.flight .via { flex: 0 1 auto; cursor: default; }
 
 /* Which clock a time is on, next to a departure airport in another timezone. */
 .when small.tz { font-size: 10px; line-height: 1.2; color: var(--accent); }
