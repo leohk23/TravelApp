@@ -82,7 +82,9 @@
       "cost": 96000,
       "notes": "Two rooms, four nights. Breakfast included. Luggage can be left after checkout.",
       "lat": 33.591,
-      "lng": 130.4184
+      "lng": 130.4184,
+      "localName": "ホテル日航福岡",
+      "localAddress": "福岡県福岡市博多区博多駅前"
     }
   ],
   "days": [

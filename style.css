@@ -1062,3 +1062,6 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 .hintrow {
   color: var(--dim); font-style: italic;
 }
+
+/* The hotel as the signs write it, beside the name the booking uses. */
+.ov-local { color: var(--dim); margin-left: 8px; }

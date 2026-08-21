@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v54';
+const BUILD = 'v55';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -555,7 +555,7 @@ async function ensureLinkedStops(d = day()) {
   const next = [...body, ...night];
 
   const key = list => JSON.stringify(list.map(it =>
-    [it.name, it.address, it.lat, it.lng, it.stayMin, it.hotelId, it.flightId, it.role, it.at, it.atTz]));
+    [it.name, it.address, it.localName, it.lat, it.lng, it.stayMin, it.hotelId, it.flightId, it.role, it.at, it.atTz]));
   if (key(next) === key(d.items)) return false;
   d.items = next;
   save();
@@ -564,6 +564,9 @@ async function ensureLinkedStops(d = day()) {
 
 const hotelItem = (hotel, point) => ({
   name: hotel.ref || hotel.from, address: hotel.from || point.address,
+  // Carried through, or the next rebuild of the day's stops quietly drops the
+  // name on the signs and the plan goes back to English only.
+  localName: hotel.localName, localAddress: hotel.localAddress,
   lat: point.lat, lng: point.lng, stayMin: 0, hotelId: hotel.id,
 });
 
@@ -1096,9 +1099,6 @@ function bookingCard(b) {
       save(); render();
     });
 
-    if (stay) {
-      attachSearch(block.querySelector('.f-from'), { bias: biasPoint, tags: STAY_TAGS, onPick: () => {} });
-    }
 
     if (flight) {
       for (const [sel, key] of [['.f-from', 'from'], ['.f-to', 'to']]) {
@@ -1133,13 +1133,29 @@ function bookingCard(b) {
   });
 
   if (stay) {
-    attachSearch(li.querySelector('.f-ref'), {
+    const nameField = li.querySelector('.f-ref');
+    // Typing over the name means a different hotel, so its other-language
+    // name goes with it rather than hanging around on the new one.
+    nameField.onchange = e => {
+      if (e.target.value !== b.ref) { delete b.localName; delete b.localAddress; }
+      b.ref = e.target.value;
+      save(); render();
+    };
+    attachSearch(nameField, {
       bias: biasPoint,
       tags: STAY_TAGS,
       onPick: h => {
         // Fills the name, address and coordinates at once, so the map and
         // Day-plan origin never have to geocode a selected hotel again.
         b.ref = h.name; b.from = h.label; b.lat = h.lat; b.lng = h.lng;
+        b.osmId = h.osmId;
+        delete b.localName; delete b.localAddress;
+        save(); render();
+      },
+      onDetails: (h, extra) => {
+        if (b.osmId !== h.osmId) return;
+        if (extra.localName) b.localName = extra.localName;
+        if (extra.localAddress) b.localAddress = extra.localAddress;
         save(); render();
       },
     });
@@ -1980,7 +1996,8 @@ function renderOverview() {
       </header>
 
       ${stays.length ? `<div class="ovline"><span class="k">Staying</span><span>${stays.map(b =>
-        `${esc(b.ref || 'Hotel')}${b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
+        `${esc(b.ref || 'Hotel')}${b.localName ? `<span class="ov-local">${esc(b.localName)}</span>` : ''}${
+          b.conf ? ` <code>${esc(b.conf)}</code>` : ''}`
       ).join('<br>')}</span></div>` : ''}
 
       ${moves.length ? `<div class="ovline"><span class="k">Moving</span><span>${moves.map(b => {
@@ -2613,6 +2630,11 @@ const addBooking = (kind, time) => {
     b.end = `${isoDate(t)}T11:00`;
   }
   state.itinerary.push(b);
+  // The filters are per kind now, so adding a hotel while looking at flights
+  // would file it somewhere you cannot see - which looks exactly like it not
+  // having been saved. Move to where it landed.
+  const view = state.itinView || 'all';
+  if (view.startsWith(`kind:`) && view !== `kind:${kind}`) state.itinView = `kind:${kind}`;
   save(); renderItinerary();
   document.querySelector(`[data-bid="${b.id}"] .f-ref`)?.focus();
 };
