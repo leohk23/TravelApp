@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v61';
+const BUILD = 'v62';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -2803,14 +2803,13 @@ $('#itinSearch').oninput = e => { itinQuery = e.target.value; renderItinerary();
 $('#addActivity').onclick = () => openActivity(null);
 $('#printBtn').onclick = () => window.print();
 async function runPlanAction(button, working, action) {
-  const label = button.querySelector('span');
-  const ready = label.textContent;
+  const ready = button.getAttribute('aria-label');
   button.disabled = true;
   button.classList.add('working');
-  label.textContent = working;
+  button.setAttribute('aria-label', working);
   try { await action(); }
   finally {
-    label.textContent = ready;
+    button.setAttribute('aria-label', ready);
     button.classList.remove('working');
     button.disabled = false;
   }

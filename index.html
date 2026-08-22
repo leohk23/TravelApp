@@ -116,7 +116,7 @@
            aria-label="Resize plan and map" tabindex="0"></div>
 
       <div id="map">
-        <button id="mapFull" class="mapbtn top" type="button" title="Expand map" aria-label="Expand map">
+        <button id="mapFull" class="mapbtn" type="button" title="Expand map" aria-label="Expand map">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v2H5v5H3V3zm11 0h7v7h-2V5h-5V3zM3 14h2v5h5v2H3v-7zm16 0h2v7h-7v-2h5v-5z"/></svg>
         </button>
       </div>
@@ -125,14 +125,12 @@
     <div class="fab-wrap" id="planFab">
       <div class="plan-fab-actions" aria-label="Day plan actions">
         <button id="optimise" class="plan-action primary" type="button"
-                title="Reorder the stops you added to reduce travel">
+                title="Optimise order" aria-label="Optimise order">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3 5 7h3v10h2V7h3L9 3zm6 18 4-4h-3V7h-2v10h-3l4 4z"/></svg>
-          <span>Optimise order</span>
         </button>
         <button id="recalc" class="plan-action" type="button"
-                title="Look up every transit leg again">
+                title="Refresh transit" aria-label="Refresh transit">
           <svg class="refresh-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6a5.9 5.9 0 0 1 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-          <span>Refresh transit</span>
         </button>
       </div>
       <button class="fab" id="addActivity" type="button"

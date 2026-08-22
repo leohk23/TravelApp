@@ -697,9 +697,9 @@ li.hint { display: block; margin-bottom: 12px; }
 }
 .splitter:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* floating control, bottom right of the map */
+/* Lower-left map control, lifted just above the attribution line. */
 .mapbtn {
-  position: absolute; right: 12px; bottom: 12px; z-index: 500;
+  position: absolute; left: 12px; bottom: 24px; z-index: 500;
   width: 38px; height: 38px; min-height: 38px; padding: 0;
   border-radius: 10px; background: var(--card);
   box-shadow: var(--shadow-lg); border-color: var(--line);
@@ -757,22 +757,18 @@ main > section { position: relative; }
 /* closed menu must not block clicks on the list underneath */
 .fab-wrap:not(.open) .fab-menu { visibility: hidden; }
 
-/* The Day plan's three essential actions travel together. Labels keep the two
-   route operations legible on a phone; stacking them avoids a 300px-wide row. */
-#planFab { flex-direction: row; align-items: flex-end; gap: 8px; }
-.plan-fab-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+/* The three essential Day plan actions form one narrow vertical stack: optimise,
+   refresh, then add. Tooltips and accessible names explain the two icon buttons. */
+#planFab { flex-direction: column; align-items: center; gap: 8px; }
+.plan-fab-actions { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .plan-action {
-  min-height: 44px; padding: 0 14px; border-radius: 99px;
-  background: var(--card); box-shadow: var(--shadow-lg); white-space: nowrap;
-  font-size: 13px; font-weight: 650;
+  width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%;
+  background: var(--card); box-shadow: var(--shadow-lg);
 }
 .plan-action.primary { background: var(--accent); color: #fff; border-color: transparent; }
 .plan-action svg { width: 18px; height: 18px; fill: currentColor; }
 .plan-action.working .refresh-icon { animation: spin .7s linear infinite; }
 .plan-action:disabled { opacity: .72; }
-
-/* the map control sits top-right now, leaving the corner to the add button */
-.mapbtn.top { top: 12px; bottom: auto; }
 
 @media (min-width: 821px) {
   .fab-wrap { right: 20px; bottom: 20px; }
@@ -1125,7 +1121,7 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 /* pan-y keeps vertical scrolling with the browser while leaving horizontal
    drags to us. overflow-x guards against the day parked off the edge giving
    the pane a sideways scrollbar of its own. */
-#planPane { touch-action: pan-y; overflow-x: hidden; padding-bottom: 124px; }
+#planPane { touch-action: pan-y; overflow-x: hidden; padding-bottom: 168px; }
 
 @keyframes day-fwd {
   from { transform: translateX(26px); opacity: .35; }
