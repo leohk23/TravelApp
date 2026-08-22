@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v63';
+const BUILD = 'v64';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -1991,16 +1991,43 @@ async function removeMember(i) {
     return toast(`${who} paid ${paid} expense${paid > 1 ? 's' : ''}. Change the payer on ${paid > 1 ? 'those' : 'that one'} first.`);
   }
   const shared = state.expenses.filter(e => e.sharedBy.includes(who)).length;
+  const reopenSettings = $('#dayDlg').open;
+  if (reopenSettings) $('#dayDlg').close();
   const ok = await ask({
     title: `Remove ${who}?`,
     body: shared ? `${shared} expense${shared > 1 ? 's are' : ' is'} split with ${who}. Their share moves to everyone else.` : '',
     confirm: 'Remove', danger: true,
   });
-  if (!ok) return;
-  state.members.splice(i, 1);
-  for (const e of state.expenses) e.sharedBy = e.sharedBy.filter(m => m !== who);
-  save(); render();
+  if (ok) {
+    state.members.splice(i, 1);
+    for (const e of state.expenses) e.sharedBy = e.sharedBy.filter(m => m !== who);
+    save(); render();
+  }
+  if (reopenSettings) openDayDlg();
 }
+function renderParty() {
+  // A name per row with its own remove, so editing one person cannot fat-finger
+  // the rest. Comma-separated text made every edit a re-type of the whole party.
+  $('#memberList').replaceChildren(...state.members.map((m, i) => {
+    const li = document.createElement('li');
+    li.className = 'member';
+    li.innerHTML = `<button class="m-name" type="button" title="Rename">${esc(m)}</button>`
+      + `<button class="x" type="button" title="Remove from the party">✕</button>`;
+    li.querySelector('.m-name').onclick = async () => {
+      const reopenSettings = $('#dayDlg').open;
+      if (reopenSettings) $('#dayDlg').close();
+      const next = await askText({
+        title: 'Rename', label: 'Name', value: m, confirm: 'Rename',
+        body: 'Their expenses come with them.',
+      });
+      if (next !== null) renameMember(i, next.trim());
+      if (reopenSettings) openDayDlg();
+    };
+    li.querySelector('.x').onclick = () => removeMember(i);
+    return li;
+  }));
+}
+
 function renderMoney() {
   const view = state.moneyView === 'summary' ? 'summary' : 'records';
   for (const button of document.querySelectorAll('[data-money-view]')) {
@@ -2012,24 +2039,6 @@ function renderMoney() {
   $('#settle').hidden = view !== 'summary';
 
   $('#currency').innerHTML = currencyOptions(state.currency);
-
-  // A name per row with its own remove, so editing one person cannot fat-finger
-  // the rest. Comma-separated text made every edit a re-type of the whole party.
-  $('#memberList').replaceChildren(...state.members.map((m, i) => {
-    const li = document.createElement('li');
-    li.className = 'member';
-    li.innerHTML = `<button class="m-name" type="button" title="Rename">${esc(m)}</button>`
-      + `<button class="x" type="button" title="Remove from the party">✕</button>`;
-    li.querySelector('.m-name').onclick = async () => {
-      const next = await askText({
-        title: 'Rename', label: 'Name', value: m, confirm: 'Rename',
-        body: 'Their expenses come with them.',
-      });
-      if (next !== null) renameMember(i, next.trim());
-    };
-    li.querySelector('.x').onclick = () => removeMember(i);
-    return li;
-  }));
 
   $('#exPayer').innerHTML = state.members.map(m => `<option>${esc(m)}</option>`).join('');
 
@@ -2156,7 +2165,7 @@ function renderOverview() {
 
 /* ---------- shell ---------- */
 function render() {
-  renderDays(); renderOverview(); renderItinerary(); renderPlan(); renderMoney();
+  renderDays(); renderOverview(); renderItinerary(); renderPlan(); renderParty(); renderMoney();
 }
 
 /** The day strip only applies to views that are actually scoped to a day. */
@@ -2247,7 +2256,7 @@ function wizShow(step) {
   wizStep = Math.max(0, Math.min(WIZ.length - 1, step));
   $('#wizTitle').textContent = WIZ[wizStep][0];
   $('#wizSub').textContent = WIZ[wizStep][1];
-  document.querySelectorAll('.wiz-body').forEach(b => { b.hidden = +b.dataset.step !== wizStep; });
+  $('#wizard').querySelectorAll('.wiz-body').forEach(b => { b.hidden = +b.dataset.step !== wizStep; });
   $('#wDots').querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === wizStep));
   $('#wBack').disabled = wizStep === 0;
   $('#wNext').textContent = wizStep === WIZ.length - 1 ? 'Create trip' : 'Next';
@@ -2741,7 +2750,7 @@ function renderDayTable() {
   }));
 }
 
-$('#dayEdit').onclick = openDayDlg;
+$('#tripSettingsBtn').onclick = openDayDlg;
 $('#ddDone').onclick = () => $('#dayDlg').close();
 $('#ddAdd').onclick = () => { addDayAfter(state.days.length - 1); renderDayTable(); tripCal.render(); };
 /** First night of the trip with no stay booked, so "+ Hotel" lands somewhere useful. */

@@ -65,14 +65,18 @@ or notes. The map starts compact; drag the divider vertically on a phone or
 horizontally on a desktop to adjust it. The layout is remembered, and the map's
 expand button opens a full-map view when needed.
 
-**Expenses** — use Records to set the party, pick a three-letter currency code,
-add costs and toggle who shares each one. Summary keeps totals, balances and the
-fewest transfers that square everyone up on a separate screen.
+**Expenses** — use Records to pick a three-letter currency code, add costs and
+toggle who shares each one. Summary keeps totals, balances and the fewest
+transfers that square everyone up on a separate screen.
+
+**Trip settings** — the gear beside **+ Plan a trip** holds the whole-trip date
+range, party members, cities and each day's hours. These settings stay out of
+the task-focused Expenses and Day plan screens.
 
 **+ Plan a trip** runs a four-step setup — name, cities, travel dates dragged
 on a calendar, then headcount and currency — and generates the day tabs for you.
 Cities are spread evenly across the dates; adjust the allocation afterwards in
-Trip days, where ↓ applies a city to every following day.
+Trip settings, where ↓ applies a city to every following day.
 
 ## Environments
 

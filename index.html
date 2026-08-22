@@ -24,6 +24,9 @@
   <span id="env" hidden>preview</span>
   <span id="busy" hidden>working…</span>
   <span class="spacer"></span>
+  <button id="tripSettingsBtn" class="icon trip-settings" type="button"
+          title="Trip settings: dates, days and party"
+          aria-label="Trip settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.5 7.5 0 0 0 .05-.94 7.5 7.5 0 0 0-.05-.94l2.03-1.58-1.92-3.32-2.39.96a7.25 7.25 0 0 0-1.63-.94L14.87 3h-3.74l-.36 3.18a7.25 7.25 0 0 0-1.63.94l-2.39-.96-1.92 3.32 2.03 1.58a7.5 7.5 0 0 0-.05.94c0 .32.02.63.05.94l-2.03 1.58 1.92 3.32 2.39-.96c.5.39 1.05.71 1.63.94l.36 3.18h3.74l.36-3.18a7.25 7.25 0 0 0 1.63-.94l2.39.96 1.92-3.32-2.03-1.58zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
   <button id="setupBtn" class="icon setup" type="button"
           title="Plan a trip: cities, dates, who's coming"
           aria-label="Plan a trip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7zm0 4a1 1 0 0 0-1 1v1h-1a1 1 0 0 0 0 2h1v1a1 1 0 0 0 2 0v-1h1a1 1 0 0 0 0-2h-1V7a1 1 0 0 0-1-1z"/></svg></button>
@@ -52,7 +55,6 @@
 <div class="daystrip" id="daystrip">
   <div class="daystrip-row">
     <div id="dayTabs" class="tabs"></div>
-    <button id="dayEdit" class="icon" title="Edit this day: date, city, add or delete">⋯</button>
   </div>
   <div class="daywhen">
     <p id="dayWhen" class="dw-text"></p>
@@ -150,17 +152,8 @@
     </nav>
     <div class="cols">
       <div id="moneyRecords" class="pane" role="tabpanel" aria-labelledby="moneyRecordsTab">
-        <div class="party">
-          <div class="party-head">
-            <span class="party-lbl">Party</span>
-            <span class="spacer"></span>
-            <label class="cur-lbl">Currency <select id="currency"></select></label>
-          </div>
-          <ul id="memberList" class="party-list"></ul>
-          <form id="addMember" class="party-add">
-            <input id="memberName" placeholder="Add someone…" autocomplete="off" maxlength="40">
-            <button type="submit">Add</button>
-          </form>
+        <div class="expense-currency">
+          <label class="cur-lbl">Currency <select id="currency"></select></label>
         </div>
         <form id="addExpense" class="search">
           <input id="exDesc" placeholder="What for?">
@@ -223,13 +216,26 @@
 
 <dialog id="dayDlg" class="wide-dlg">
   <div class="ask-head">
-    <h2>Trip days</h2>
-    <p>Dates drive transit timetables and file your bookings onto the right day.</p>
+    <h2>Trip settings</h2>
+    <p>Manage the travel dates, party and the structure of each day.</p>
   </div>
 
-  <div id="tripCal"></div>
+  <div class="wiz-body trip-dates">
+    <h3>Travel dates</h3>
+    <div id="tripCal"></div>
+  </div>
+
+  <div class="wiz-body trip-party">
+    <h3>Party</h3>
+    <ul id="memberList" class="party-list"></ul>
+    <form id="addMember" class="party-add">
+      <input id="memberName" placeholder="Add someone…" autocomplete="off" maxlength="40">
+      <button type="submit">Add</button>
+    </form>
+  </div>
 
   <div class="wiz-body dd-hours">
+    <h3>Selected day</h3>
     <span class="dd-hours-lbl"><b id="ddHoursDay">This day</b> runs</span>
     <span class="dd-hours-row">
       <input type="time" id="ddStart" aria-label="Day starts">
@@ -239,11 +245,11 @@
     <small>The start drives the transit lookups. The end just marks where the day should stop.</small>
   </div>
 
-  <div class="daytable-wrap">
-    <table class="daytable"><tbody id="ddRows"></tbody></table>
-  </div>
-
-  <div class="wiz-body dd-actions">
+  <div class="wiz-body trip-day-list">
+    <h3>Days and cities</h3>
+    <div class="daytable-wrap">
+      <table class="daytable"><tbody id="ddRows"></tbody></table>
+    </div>
     <button id="ddAdd" type="button">+ Add a day at the end</button>
   </div>
 
