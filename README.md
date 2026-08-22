@@ -16,6 +16,11 @@ Then open http://localhost:8000. A plain `file://` open will not work — ES
 modules need an HTTP origin. `serve.mjs` is Node stdlib only and is a dev
 convenience, not part of the deployed site.
 
+With VS Code's Debugger for Firefox installed, start the server above and press
+F5 using **Launch Travel Planner in Firefox**. The configuration lives in
+`.vscode/launch.json` and maps the local URL back to this workspace for
+breakpoints.
+
 ## Where the data comes from
 
 | Need | Service | Cost |
