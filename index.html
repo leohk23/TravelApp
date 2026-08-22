@@ -56,13 +56,6 @@
   </div>
   <div class="daywhen">
     <p id="dayWhen" class="dw-text"></p>
-    <span class="spacer"></span>
-    <button id="optimise" class="icon" type="button" hidden
-            title="Reorder the stops you added to cut travel, then look the transit up again"
-            aria-label="Optimise the order"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3 5 7h3v10h2V7h3L9 3zm6 18 4-4h-3V7h-2v10h-3l4 4z"/></svg></button>
-    <button id="recalc" class="icon" type="button" hidden
-            title="Look up every leg again"
-            aria-label="Recalculate transit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6a5.9 5.9 0 0 1 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
   </div>
 </div>
 
@@ -130,6 +123,18 @@
     </div>
 
     <div class="fab-wrap" id="planFab">
+      <div class="plan-fab-actions" aria-label="Day plan actions">
+        <button id="optimise" class="plan-action primary" type="button"
+                title="Reorder the stops you added to reduce travel">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3 5 7h3v10h2V7h3L9 3zm6 18 4-4h-3V7h-2v10h-3l4 4z"/></svg>
+          <span>Optimise order</span>
+        </button>
+        <button id="recalc" class="plan-action" type="button"
+                title="Look up every transit leg again">
+          <svg class="refresh-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6a5.9 5.9 0 0 1 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+          <span>Refresh transit</span>
+        </button>
+      </div>
       <button class="fab" id="addActivity" type="button"
               aria-label="Add a place or activity">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z"/></svg>

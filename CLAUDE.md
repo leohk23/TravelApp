@@ -278,8 +278,10 @@ quietly undid it. The last fixed place before the first movable one anchors
 the route, so the answer is the best way round starting from your hotel rather
 than the best loop in the abstract.
 
-Attribution for OSM data is a licence condition, not decoration. It lives in the
-Leaflet attribution control and the credit line under the day plan.
+Attribution for map and transit data is a licence condition, not decoration.
+Keep the compact OpenStreetMap and Transitous links visible in the Leaflet
+attribution control; the fuller source notes live in About. Leaflet's own prefix
+is optional and deliberately omitted to preserve map space on phones.
 
 ## Caching
 

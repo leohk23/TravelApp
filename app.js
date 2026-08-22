@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v59';
+const BUILD = 'v61';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -254,7 +254,7 @@ async function recalc() {
 async function optimize() {
   const d = day();
   const next = optimizeDay(d.items, haversine);
-  if (!next) return;
+  if (!next) return toast('Add more places before optimising their order.');
   d.items = next;
   save();
   await recalc();
@@ -276,9 +276,11 @@ function drawMap() {
       // Held back a little so the route reads over it. The map is context;
       // the line is the answer.
       opacity: 0.72,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, transit <a href="https://transitous.org/sources/">Transitous sources</a>',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot; transit <a href="https://transitous.org/sources/">Transitous</a>',
     }).addTo(map);
-    map.attributionControl.setPosition('bottomleft');   // frees the corner for the button
+    map.attributionControl
+      .setPrefix(false)                  // Leaflet credit is welcome, but optional and bulky on phones
+      .setPosition('bottomleft');        // frees the other corner for the plan actions
   }
   layer?.remove();
   // Numbered against every stop, drawn for the ones that belong on this map,
@@ -865,12 +867,6 @@ function renderDays() {
       + (showCity && d.city ? `<span class="dw-city">${esc(d.city)}</span>` : '')
       + (hours ? `<span class="dw-hours">${esc(hours)}</span>` : '')
     : '<span class="dw-none">No date set, so transit times cannot be looked up</span>';
-
-  // These two act on the day plan only, and they ride with the date so they
-  // stay reachable however far down the stops you have scrolled.
-  const planning = state.tab === 'local';
-  $('#optimise').hidden = !planning;
-  $('#recalc').hidden = !planning;
 
   // With a long trip the selected tab can sit off-screen after a re-render.
   tabs.querySelector('.tab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -2806,8 +2802,21 @@ $('#itinSearch').oninput = e => { itinQuery = e.target.value; renderItinerary();
 
 $('#addActivity').onclick = () => openActivity(null);
 $('#printBtn').onclick = () => window.print();
-$('#optimise').onclick = optimize;
-$('#recalc').onclick = recalc;
+async function runPlanAction(button, working, action) {
+  const label = button.querySelector('span');
+  const ready = label.textContent;
+  button.disabled = true;
+  button.classList.add('working');
+  label.textContent = working;
+  try { await action(); }
+  finally {
+    label.textContent = ready;
+    button.classList.remove('working');
+    button.disabled = false;
+  }
+}
+$('#optimise').onclick = e => runPlanAction(e.currentTarget, 'Optimising…', optimize);
+$('#recalc').onclick = e => runPlanAction(e.currentTarget, 'Refreshing…', recalc);
 
 $('#addMember').onsubmit = e => {
   e.preventDefault();

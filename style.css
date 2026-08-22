@@ -155,8 +155,7 @@ header {
 }
 .daystrip-row { display: flex; gap: 10px; align-items: center; }
 /* The date left the pills so they could stay short. It reads in full here,
-   where there is a whole line for it - and the two day-plan controls ride
-   along, so they stay reachable however far you have scrolled the stops. */
+   where there is a whole line for it. */
 .daywhen { display: flex; gap: 6px; align-items: center; margin: 7px 0 0 2px; }
 .dw-text { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin: 0; min-width: 0; }
 .dw-text .dw-date { font-size: 14px; font-weight: 600; }
@@ -356,6 +355,15 @@ button.via:hover { background: var(--sunk); color: var(--fg); }
 .ac-list li:hover, .ac-list li.on { background: var(--accent-soft); }
 /* ---------- map pins ---------- */
 .leaflet-container { background: var(--sunk); font: inherit; }
+/* Keep the data credits visible on the map without turning them into a banner.
+   Leaflet's optional prefix is removed in JS; these two links are the credits
+   that still need to remain immediately visible. */
+.leaflet-control-attribution {
+  max-width: calc(100vw - 20px); padding: 2px 5px !important;
+  border-radius: 0 var(--r-sm) 0 0; background: color-mix(in srgb, var(--card) 88%, transparent) !important;
+  color: var(--dim); font-size: 10px !important; line-height: 1.25 !important;
+}
+.leaflet-control-attribution a { color: inherit; text-decoration: underline; text-underline-offset: 1px; }
 .pin {
   background: var(--accent); color: #fff; border-radius: 99px;
   display: flex; align-items: center; justify-content: center;
@@ -749,6 +757,20 @@ main > section { position: relative; }
 /* closed menu must not block clicks on the list underneath */
 .fab-wrap:not(.open) .fab-menu { visibility: hidden; }
 
+/* The Day plan's three essential actions travel together. Labels keep the two
+   route operations legible on a phone; stacking them avoids a 300px-wide row. */
+#planFab { flex-direction: row; align-items: flex-end; gap: 8px; }
+.plan-fab-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.plan-action {
+  min-height: 44px; padding: 0 14px; border-radius: 99px;
+  background: var(--card); box-shadow: var(--shadow-lg); white-space: nowrap;
+  font-size: 13px; font-weight: 650;
+}
+.plan-action.primary { background: var(--accent); color: #fff; border-color: transparent; }
+.plan-action svg { width: 18px; height: 18px; fill: currentColor; }
+.plan-action.working .refresh-icon { animation: spin .7s linear infinite; }
+.plan-action:disabled { opacity: .72; }
+
 /* the map control sits top-right now, leaving the corner to the add button */
 .mapbtn.top { top: 12px; bottom: auto; }
 
@@ -1103,7 +1125,7 @@ button.icon.setup svg { width: 22px; height: 22px; fill: currentColor; }
 /* pan-y keeps vertical scrolling with the browser while leaving horizontal
    drags to us. overflow-x guards against the day parked off the edge giving
    the pane a sideways scrollbar of its own. */
-#planPane { touch-action: pan-y; overflow-x: hidden; }
+#planPane { touch-action: pan-y; overflow-x: hidden; padding-bottom: 124px; }
 
 @keyframes day-fwd {
   from { transform: translateX(26px); opacity: .35; }
