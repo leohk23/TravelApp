@@ -537,6 +537,7 @@ button.danger-solid:hover { background: var(--bad); filter: brightness(1.08); }
 #dayDlg .wiz-body + .wiz-body { border-top: 1px solid var(--line); }
 #dayDlg .wiz-body h3 { margin: 0; font-size: 14px; }
 #dayDlg .trip-dates .cal { padding: 4px 0 0; }
+.trip-day-list { padding-inline: 12px; }
 .trip-day-list #ddAdd { justify-content: flex-start; }
 
 /* ---------- dialogs that need to scroll ---------- */
@@ -556,18 +557,17 @@ dialog[open] {
    takes its natural height and lets it. */
 .daytable-wrap {
   flex: 0 0 auto;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
-.daytable { width: 100%; min-width: 520px; border-collapse: collapse; }
-.daytable td, .daytable th { padding: 3px 4px; text-align: left; vertical-align: middle; }
+.daytable { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.daytable td, .daytable th { padding: 3px 2px; text-align: left; vertical-align: middle; }
+.daytable th { width: 3rem; }
 .daytable tr.on { background: var(--accent-soft); }
 .daytable tr.on .r-go { color: var(--accent); }
 .daytable .r-go {
-  min-height: 32px; padding: 0 8px; white-space: nowrap; font-weight: 600;
+  min-height: 32px; padding: 0 3px; white-space: nowrap; font-size: 12px; font-weight: 600;
   background: transparent; border-color: transparent;
 }
-.daytable input { min-height: 34px; padding: 4px 8px; width: 100%; }
+.daytable input { min-height: 34px; padding: 4px 6px; width: 100%; font-size: 12px; }
 .daytable .ac { display: block; }
 .daytable .r-fill, .daytable .r-del {
   min-height: 32px; width: 32px; padding: 0; color: var(--dim);
@@ -677,9 +677,10 @@ li.hint { display: block; margin-bottom: 12px; }
 /* ---------- trip days table: dates are read-only, city gets the room ---------- */
 .daytable .r-when {
   color: var(--dim); white-space: nowrap; font-size: 12px;
-  font-variant-numeric: tabular-nums; padding-right: 10px;
+  font-variant-numeric: tabular-nums; width: 2.5rem;
 }
-.daytable td:nth-child(3) { width: 100%; min-width: 18rem; }
+.daytable td:nth-child(3) { width: auto; }
+.daytable td:nth-child(4), .daytable td:nth-child(5) { width: 36px; }
 
 @media (min-width: 561px) {
   .subribbon input[type=search] { flex: 0 1 230px; }
@@ -945,9 +946,6 @@ main > section { position: relative; }
 .dd-hours-row input { flex: 1 1 0; min-width: 0; min-height: var(--tap); }
 .dd-hours-row > span { color: var(--dim); font-size: 13px; flex: 0 0 auto; }
 .dd-hours small { color: var(--dim); font-size: 12px; }
-/* A dialog is a poor place to be squeezed, so a narrow screen scrolls the
-   table sideways rather than crushing every field. */
-
 /* ---------- expenses and trip party ---------- */
 .expense-currency { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 .cur-lbl { display: flex; gap: 6px; align-items: center; color: var(--dim); font-size: 13px; }
