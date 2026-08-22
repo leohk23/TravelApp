@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v65';
+const BUILD = 'v66';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({

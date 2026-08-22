@@ -558,9 +558,9 @@ dialog[open] {
 .daytable-wrap {
   flex: 0 0 auto;
 }
-.daytable { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.daytable { width: 100%; table-layout: auto; border-collapse: collapse; }
 .daytable td, .daytable th { padding: 3px 2px; text-align: left; vertical-align: middle; }
-.daytable th { width: 3rem; }
+.daytable th { width: 1%; }
 .daytable tr.on { background: var(--accent-soft); }
 .daytable tr.on .r-go { color: var(--accent); }
 .daytable .r-go {
@@ -677,10 +677,10 @@ li.hint { display: block; margin-bottom: 12px; }
 /* ---------- trip days table: dates are read-only, city gets the room ---------- */
 .daytable .r-when {
   color: var(--dim); white-space: nowrap; font-size: 12px;
-  font-variant-numeric: tabular-nums; width: 2.5rem;
+  font-variant-numeric: tabular-nums; width: 1%;
 }
-.daytable td:nth-child(3) { width: auto; }
-.daytable td:nth-child(4), .daytable td:nth-child(5) { width: 36px; }
+.daytable td:nth-child(3) { width: 100%; min-width: 0; }
+.daytable td:nth-child(4), .daytable td:nth-child(5) { width: 1%; }
 
 @media (min-width: 561px) {
   .subribbon input[type=search] { flex: 0 1 230px; }
