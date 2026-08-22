@@ -142,8 +142,14 @@
 
   <!-- ---------- Expenses ---------- -->
   <section id="money" hidden>
+    <nav class="subribbon money-tabs" role="tablist" aria-label="Expenses view">
+      <button id="moneyRecordsTab" type="button" role="tab" data-money-view="records"
+              aria-controls="moneyRecords">Records</button>
+      <button id="moneySummaryTab" type="button" role="tab" data-money-view="summary"
+              aria-controls="settle">Summary</button>
+    </nav>
     <div class="cols">
-      <div class="pane">
+      <div id="moneyRecords" class="pane" role="tabpanel" aria-labelledby="moneyRecordsTab">
         <div class="party">
           <div class="party-head">
             <span class="party-lbl">Party</span>
@@ -164,7 +170,7 @@
         </form>
         <ul id="expenses"></ul>
       </div>
-      <div id="settle" class="pane"></div>
+      <div id="settle" class="pane" role="tabpanel" aria-labelledby="moneySummaryTab"></div>
     </div>
   </section>
 

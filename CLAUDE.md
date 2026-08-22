@@ -91,6 +91,7 @@ One object in `localStorage['travelapp']`, written by `save()`:
 ```js
 {
   name, currency, members: [name], tab,      // tab = which ribbon section is open
+  itinView, moneyView,                       // active sub-tabs
   dayIdx,                                    // which day tab is open
   mapView, split,                             // "split" | "map", plan-pane ratio
   itinerary: [{ id, kind, ref, conf, cost, currency?, rate?, notes,

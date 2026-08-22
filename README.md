@@ -65,8 +65,9 @@ or notes. The map starts compact; drag the divider vertically on a phone or
 horizontally on a desktop to adjust it. The layout is remembered, and the map's
 expand button opens a full-map view when needed.
 
-**Expenses** — set the party, add costs, toggle chips for who shares each one.
-The settle-up panel shows the fewest transfers that square everyone up.
+**Expenses** — use Records to set the party, pick a three-letter currency code,
+add costs and toggle who shares each one. Summary keeps totals, balances and the
+fewest transfers that square everyone up on a separate screen.
 
 **+ Plan a trip** runs a four-step setup — name, cities, travel dates dragged
 on a calendar, then headcount and currency — and generates the day tabs for you.

@@ -5,11 +5,11 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v62';
+const BUILD = 'v63';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
-  name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all',
+  name: 'My trip', currency: 'HKD', members: ['Me'], tab: 'overview', itinView: 'all', moneyView: 'records',
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day plans
   mapView: 'split', split: 0.72,   // Day plan layout and plan/map size ratio
@@ -2002,10 +2002,16 @@ async function removeMember(i) {
   save(); render();
 }
 function renderMoney() {
-  const codes = CURRENCIES.includes(state.currency) || !state.currency
-    ? CURRENCIES : [state.currency, ...CURRENCIES];
-  $('#currency').innerHTML = codes.map(c =>
-    `<option value="${esc(c)}"${c === state.currency ? ' selected' : ''}>${esc(currencyName(c))}</option>`).join('');
+  const view = state.moneyView === 'summary' ? 'summary' : 'records';
+  for (const button of document.querySelectorAll('[data-money-view]')) {
+    const on = button.dataset.moneyView === view;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-selected', on);
+  }
+  $('#moneyRecords').hidden = view !== 'records';
+  $('#settle').hidden = view !== 'summary';
+
+  $('#currency').innerHTML = currencyOptions(state.currency);
 
   // A name per row with its own remove, so editing one person cannot fat-finger
   // the rest. Comma-separated text made every edit a re-type of the whole party.
@@ -2827,6 +2833,12 @@ $('#addMember').onsubmit = e => {
   save(); render();
 };
 $('#currency').onchange = e => { state.currency = e.target.value || 'HKD'; save(); render(); };
+for (const button of document.querySelectorAll('[data-money-view]')) {
+  button.onclick = () => {
+    state.moneyView = button.dataset.moneyView;
+    save(); renderMoney();
+  };
+}
 $('#addExpense').onsubmit = e => {
   e.preventDefault();
   const desc = $('#exDesc').value.trim(), amount = +$('#exAmount').value;
