@@ -69,10 +69,16 @@ In practice, sync before you start editing and again when you stop.
 
 ## If something goes wrong
 
-- **"the sync service returned 401"** or a login page — the deployment is not
-  set to *Anyone*. Redeploy with that access.
-- **Nothing happens and the console shows a CORS error** — you pasted the
-  `/dev` URL. It has to be the `/exec` one from a deployment.
+**First thing to try, whatever the symptom:** paste the address into a browser
+tab on its own. What comes back says which of these it is.
+
+- **A Google sign-in page** — the deployment is not set to *Anyone*. Redeploy
+  with that access.
+- **A page of code, or the script editor** — that is the `/dev` address, or the
+  project URL. You want the one from **Deploy → New deployment**, ending `/exec`.
+- **`{"rev":0}` or similar** — the service is fine and the problem is elsewhere.
+- **"could not reach the sync service"** in the app — the browser refused the
+  response outright, which is one of the first two above.
 - **Changes are not arriving** — check both devices are on the same trip code.
 - **You want to start over** — delete `trip-<code>.json` from the Drive folder.
 

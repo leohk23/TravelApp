@@ -176,25 +176,53 @@ export async function openingHours(osmId, signal) {
  * script has, so it lives in the traveller's own settings and is passed to
  * whoever they are travelling with.
  */
+/**
+ * Every sync request, with no headers of any kind on it.
+ *
+ * Not even Accept. A call to /exec answers with a redirect to
+ * script.googleusercontent.com, and that hop is where the CORS headers have to
+ * survive; the fewer conditions the request carries, the more reliably they do.
+ * A plain fetch is the shape that is known to work, and it is worth keeping
+ * this off the shared getJSON(), which sends an Accept header for everyone
+ * else.
+ */
+async function syncFetch(url, init, signal) {
+  let r;
+  try {
+    r = await fetch(url, { ...init, signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+    // fetch rejects rather than returning a status when the browser refuses
+    // the response outright, which for this service means one of two things.
+    throw new Error(
+      'could not reach the sync service. Open the /exec address in a browser tab: a sign-in page means the deployment is not set to Anyone, and a page of code means it is the /dev address rather than a deployed one'
+    );
+  }
+  if (!r.ok) throw new Error(`the sync service returned ${r.status}`);
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Apps Script serves an HTML error page on an uncaught exception.
+    throw new Error('the sync service answered with a page rather than data, which usually means the script itself threw. Check its executions log');
+  }
+}
+
 export async function pullTrip(endpoint, code, signal) {
   const u = new URL(endpoint);
   u.searchParams.set('action', 'load');
   u.searchParams.set('code', code);
-  const res = await getJSON(u, signal);
+  const res = await syncFetch(u, {}, signal);
   if (res?.error) throw new Error(res.error);
   return res;                       // { rev, savedAt, by, state } or { rev: 0 }
 }
 
 /** Send the whole trip. `force` overwrites a copy this device has not seen. */
 export async function pushTrip(endpoint, code, body, signal) {
-  const r = await fetch(endpoint, {
+  const res = await syncFetch(endpoint, {
     method: 'POST',
-    signal,
-    // Deliberately no headers. See pullTrip.
     body: JSON.stringify({ action: 'save', code, ...body }),
-  });
-  if (!r.ok) throw new Error(`the sync service returned ${r.status}`);
-  const res = await r.json();
+  }, signal);
   if (res?.error) throw new Error(res.error);
   return res;                       // { ok, rev, savedAt } or { conflict, rev }
 }
