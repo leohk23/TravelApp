@@ -176,6 +176,21 @@ Days used to store `pois`; the loader migrates that to `items` on read.
 `expenses[].src` links an expense back to the booking that generated it, so the
 `+ expense` toggle can add and remove exactly one entry without double-counting.
 
+Sharing is opt-in and lives in `state.sync` — `{ url, code, synced, at }` — which
+is the one part of state that never travels: `shareable()` strips it, or pulling
+a copy would overwrite the settings that made the pull possible. `rev` counts
+saves, and `syncPlan()` compares it with `synced` and the remote revision to
+decide push, pull, same or conflict. Counting saves rather than timestamps is
+deliberate: two phones whose clocks disagree would otherwise argue about which
+edit came last. The whole trip goes as one document, so a conflict is a question
+for the traveller and never a silent choice.
+
+The backend is `tools/sync.gs`, a Google Apps Script the traveller deploys
+themselves; `SHARING.md` is the setup. Its `/exec` URL is **not** in this repo
+and must not be: together with the trip code it is the entire credential. Apps
+Script answers no CORS preflight, so `pushTrip()` sends a bare string body with
+no Content-Type — adding one would make it a preflighted request and break it.
+
 There are no API keys anywhere. Nothing secret ever enters this repo.
 
 ## Remote services (all free, no keys)

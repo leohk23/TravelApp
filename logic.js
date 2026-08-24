@@ -612,6 +612,28 @@ export function flightCutoff(items, bufferMin = 120) {
   return best ? { minutes: best.at - bufferMin, before: best.before } : null;
 }
 
+/**
+ * What a sync should do, from three revision numbers.
+ *
+ * `rev` counts local edits and `synced` is the rev that last went over the
+ * wire in either direction. Comparing the two says whether this device has
+ * changed anything since; comparing `remote` to `synced` says whether anybody
+ * else has.
+ *
+ * The whole trip travels as one blob, so there is no merging to be had - if
+ * both sides moved, one of them is going to lose. The answer is `conflict`
+ * rather than a guess, because which one loses is not a decision this code
+ * gets to make quietly.
+ */
+export function syncPlan({ rev = 0, synced = 0, remote = 0 } = {}) {
+  const mine = rev > synced;                  // edited here since the last sync
+  const theirs = remote > synced;             // edited elsewhere since then
+  if (mine && theirs) return 'conflict';
+  if (theirs) return 'pull';
+  if (mine) return 'push';
+  return remote < rev ? 'push' : 'same';      // the server has never seen it
+}
+
 /** The fare city a point falls inside, or null. Nearest wins where they overlap. */
 export function fareCity(table, point) {
   if (!table?.cities || !point) return null;

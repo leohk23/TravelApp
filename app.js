@@ -1,5 +1,5 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
-import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, STAY_TAGS } from './providers.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, pullTrip, pushTrip, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
@@ -14,6 +14,8 @@ const blank = () => ({
   days: [blankDay()], dayIdx: 0,   // per-day plans
   mapView: 'split', split: 0.72,   // Day plan layout and plan/map size ratio
   placeLang: 'en',                 // 'en' or 'local' for how place names are shown
+  rev: 0,                          // counts edits, so a sync knows who moved
+  sync: { url: '', code: '', synced: 0, at: '' },   // never leaves this device
   fares: {},                       // journey key -> amount you paid last time
   expenses: [],
 });
@@ -46,7 +48,21 @@ if (state.itinView === 'transport') state.itinView = 'all';
 // Move old defaults to the compact-map default; leave custom ratios alone.
 if (state.split === 0.42 || state.split === 0.6) state.split = 0.72;
 if (state.mapView === 'list') state.mapView = 'split';
-const save = () => localStorage.setItem(STORE, JSON.stringify(state));
+/**
+ * Save, and count the edit.
+ *
+ * `rev` is what lets a sync tell "this device has changed something" from
+ * "somebody else has". It counts saves, not seconds: two devices with clocks
+ * a minute apart would otherwise argue about which edit came last.
+ */
+const save = () => {
+  state.rev = (state.rev || 0) + 1;
+  localStorage.setItem(STORE, JSON.stringify(state));
+  showSyncState();
+};
+
+/** Saving without counting it: for a pull, which is not an edit of ours. */
+const saveQuiet = () => localStorage.setItem(STORE, JSON.stringify(state));
 const day = () => state.days[state.dayIdx];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -2328,11 +2344,166 @@ async function buildTrip() {
 }
 
 $('#setupBtn').onclick = openWizard;
-$('#aboutBtn').onclick = () => {
-  $('#buildNo').textContent = BUILD;
-  $('#placeLang').value = state.placeLang || 'en';
-  $('#aboutDlg').showModal();
+/* ---------- sharing a trip ---------- */
+
+/**
+ * What travels: the trip, and nothing about this device.
+ *
+ * `sync` holds the service address, the code and how far this device has got,
+ * and it stays behind — otherwise pulling a copy would overwrite the settings
+ * that made the pull possible, and the two devices would fight over the code.
+ */
+const shareable = () => {
+  const { sync, rev, ...trip } = state;
+  return trip;
 };
+
+/** A code nobody will guess, since it is half of the password. */
+const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(9)))
+  .map(n => 'abcdefghijkmnpqrstuvwxyz23456789'[n % 32]).join('');
+
+const syncCfg = () => (state.sync ||= { url: '', code: '', synced: 0, at: '' });
+
+function showSyncState(msg = null, kind = '') {
+  const el = $('#syncState');
+  if (!el) return;
+  const s = syncCfg();
+  el.className = `sync-state${kind ? ` ${kind}` : ''}`;
+  if (msg) { el.textContent = msg; return; }
+  if (!s.url || !s.code) { el.textContent = 'Not sharing this trip yet.'; return; }
+  const behind = (state.rev || 0) - (s.synced || 0);
+  el.textContent = behind > 0
+    ? `${behind} change${behind > 1 ? 's' : ''} here since the last sync.`
+    : s.at ? `In step with the shared copy, as of ${new Date(s.at).toLocaleString()}.`
+    : 'Ready to sync.';
+}
+
+/** Take the shared copy, keeping this device's own sharing settings. */
+function adopt(remote) {
+  const s = syncCfg();
+  state = { ...blank(), ...remote.state, sync: { ...s, synced: remote.rev, at: remote.savedAt } };
+  state.rev = remote.rev;
+  saveQuiet();
+  render();
+  showTab(state.tab);
+}
+
+let syncing = false;
+
+/**
+ * Push, pull, or ask.
+ *
+ * The whole trip goes as one document, so there is nothing to merge. When both
+ * sides have moved since the last sync the answer is a question, not a guess:
+ * whichever copy loses, losing it is the traveller's decision.
+ */
+async function syncTrip({ pullOnly = false, quiet = false } = {}) {
+  const s = syncCfg();
+  if (!s.url || !s.code) {
+    if (quiet) return;
+    return toast('Set the sync service and a trip code first.');
+  }
+  if (syncing) return;
+  syncing = true;
+  setBusy(1);
+  if (!quiet) showSyncState('Talking to the sync service…');
+  try {
+    const remote = await pullTrip(s.url, s.code);
+    const remoteRev = Number(remote?.rev) || 0;
+    let plan = pullOnly ? 'pull' : syncPlan({ rev: state.rev || 0, synced: s.synced || 0, remote: remoteRev });
+
+    if (plan === 'pull' && !remote.state) plan = 'push';   // nothing there yet
+
+    // A quiet check on startup only ever takes what is plainly newer. It does
+    // not push, and it does not interrupt to ask.
+    if (quiet && plan !== 'pull') { showSyncState(); return; }
+
+    if (plan === 'conflict') {
+      const keep = await ask({
+        title: 'Both copies have changed',
+        body: `This device has ${(state.rev || 0) - (s.synced || 0)} unsynced change(s). `
+          + `The shared copy was saved ${remote.savedAt ? new Date(remote.savedAt).toLocaleString() : 'elsewhere'}`
+          + `${remote.by ? ` on ${remote.by}` : ''}. One of them has to go.`,
+        confirm: 'Keep this device', danger: true,
+      });
+      plan = keep ? 'force' : 'pull';
+    }
+
+    if (plan === 'pull') {
+      if (!remote.state) { showSyncState('Nothing shared yet.'); return; }
+      adopt(remote);
+      toast(quiet ? 'Opened the shared copy of this trip.' : 'Took the shared copy.', 'ok');
+      return;
+    }
+    if (plan === 'same') { showSyncState(); toast('Already in step.', 'ok'); return; }
+
+    // Push. The revision has to clear whatever is up there, or the service
+    // refuses it - which is the guard against a phone that has been in a
+    // pocket since Tuesday quietly overwriting this evening.
+    const rev = Math.max(state.rev || 0, remoteRev) + 1;
+    const res = await pushTrip(s.url, s.code, {
+      rev, force: plan === 'force', by: deviceName(), state: shareable(),
+    });
+    if (res.conflict) {
+      // Somebody saved in the moment between the pull and the push.
+      showSyncState('The shared copy moved while this was saving. Sync again.', 'bad');
+      return;
+    }
+    state.rev = res.rev ?? rev;
+    s.synced = state.rev;
+    s.at = res.savedAt || new Date().toISOString();
+    saveQuiet();
+    showSyncState();
+    toast('Shared copy updated.', 'ok');
+  } catch (err) {
+    showSyncState(err.message, 'bad');
+    toast(`Sync failed: ${err.message}`);
+  } finally {
+    syncing = false;
+    setBusy(-1);
+  }
+}
+
+/** Something human in the conflict message, without asking anyone to name a device. */
+function deviceName() {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return 'an iPhone';
+  if (/iPad/.test(ua)) return 'an iPad';
+  if (/Android/.test(ua)) return 'an Android phone';
+  if (/Mac/.test(ua)) return 'a Mac';
+  if (/Windows/.test(ua)) return 'a Windows PC';
+  return 'another device';
+}
+
+$('#syncNew').onclick = () => { syncCfg().code = newCode(); syncCfg().synced = 0; save(); openAbout(); };
+$('#syncUrl').onchange = e => { syncCfg().url = e.target.value.trim(); save(); showSyncState(); };
+$('#syncCode').onchange = e => {
+  const next = e.target.value.trim();
+  const s = syncCfg();
+  if (next !== s.code) { s.code = next; s.synced = 0; s.at = ''; }
+  save(); showSyncState();
+};
+$('#syncNow').onclick = () => syncTrip();
+$('#syncPull').onclick = async () => {
+  const ok = await ask({
+    title: 'Replace this trip with the shared copy?',
+    body: 'Anything on this device that has not been synced is lost.',
+    confirm: 'Replace', danger: true,
+  });
+  if (ok) syncTrip({ pullOnly: true });
+};
+
+function openAbout() {
+  const s = syncCfg();
+  $('#placeLang').value = state.placeLang || 'en';
+  $('#buildNo').textContent = BUILD;
+  $('#syncUrl').value = s.url || '';
+  $('#syncCode').value = s.code || '';
+  showSyncState();
+  if (!$('#aboutDlg').open) $('#aboutDlg').showModal();
+}
+
+$('#aboutBtn').onclick = openAbout;
 $('#placeLang').onchange = e => { state.placeLang = e.target.value; save(); };
 $('#aboutDone').onclick = () => $('#aboutDlg').close();
 $('#wAddCity').onclick = () => $('#wCities').append(cityRow());
@@ -2901,3 +3072,4 @@ render();
 showTab(state.tab);
 if (seedDemo) loadDemo(!firstRun);
 else if (firstRun) openWizard();
+else if (state.sync?.url && state.sync?.code) syncTrip({ quiet: true });

@@ -327,6 +327,29 @@
         English more reliably, local reads like the signs.</small>
     </label>
   </div>
+  <div class="wiz-body">
+    <h3 class="sync-h">Sharing</h3>
+    <label>Sync service
+      <input id="syncUrl" type="url" placeholder="https://script.google.com/…/exec"
+        autocomplete="off" spellcheck="false">
+      <small>A Google Apps Script you deploy once. Setup is in SHARING.md.</small>
+    </label>
+    <label>Trip code
+      <span class="sync-code">
+        <input id="syncCode" placeholder="none yet" autocomplete="off" spellcheck="false">
+        <button id="syncNew" type="button" title="Use a fresh, hard-to-guess code">New</button>
+      </span>
+      <small>The service address and this code together are the whole password.
+        Anyone with both can read and overwrite the trip, so send them the way
+        you would send the booking itself.</small>
+    </label>
+    <div class="sync-row">
+      <button id="syncNow" type="button" class="primary">Sync now</button>
+      <button id="syncPull" type="button">Get the shared copy</button>
+    </div>
+    <p id="syncState" class="sync-state"></p>
+  </div>
+
   <div class="wiz-body about-copy">
     <p>Places from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>,
       transit from <a href="https://transitous.org/sources/">Transitous and its sources</a>,

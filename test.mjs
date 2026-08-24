@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -305,6 +305,22 @@ for (const c of FARES.cities) {
     }
   }
 }
+
+// --- what a sync should do ---
+// rev counts edits here, synced is what last went over the wire, remote is
+// what the shared copy is at.
+assert.equal(syncPlan({ rev: 0, synced: 0, remote: 0 }), "same", "nothing anywhere");
+assert.equal(syncPlan({ rev: 4, synced: 4, remote: 4 }), "same", "in step");
+assert.equal(syncPlan({ rev: 5, synced: 4, remote: 4 }), "push", "only this device moved");
+assert.equal(syncPlan({ rev: 4, synced: 4, remote: 7 }), "pull", "only they moved");
+assert.equal(syncPlan({ rev: 6, synced: 4, remote: 7 }), "conflict",
+  "both moved, and one blob cannot hold both");
+
+// A trip made before sharing was set up has never been sent anywhere.
+assert.equal(syncPlan({ rev: 12, synced: 0, remote: 0 }), "push");
+// And a device that has only ever received still has nothing of its own to send.
+assert.equal(syncPlan({ rev: 7, synced: 7, remote: 7 }), "same");
+assert.equal(syncPlan({}), "same", "no numbers at all is not a conflict");
 
 // --- a booking paid in another currency ---
 // Bookings get paid months ahead on a card, in whatever the airline charges.

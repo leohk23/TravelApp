@@ -83,9 +83,11 @@ a rename, and booking costs in a foreign currency.
 - **Unequal splits.** Everything splits evenly among `sharedBy`. Shares,
   percentages, or exact amounts per person. *Build when someone actually objects
   to an even split.*
-- **Sync / sharing.** State is per-browser `localStorage`. A real backend means
-  auth, hosting and a privacy question. *Build only if the party wants to edit
-  the same trip live — otherwise restoring Export/Import is enough.*
+- **Sharing that does not send the whole trip.** `SHARING.md` syncs the entire
+  blob, so two people editing at once means one of them loses and is asked which.
+  Expenses are the part that genuinely wants many writers, and they are
+  append-only by nature: an add and a delete keyed by id cannot conflict.
+  *Build when being asked to choose starts happening more than once a trip.*
 - **Non-transit modes.** Transit only. Driving, walking-only days, ferries as a
   first-class choice. *Build for a trip where transit is not the default.*
 - **Vendor Leaflet.** It loads from unpkg with an SRI hash. If unpkg is down the

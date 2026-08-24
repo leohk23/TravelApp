@@ -164,6 +164,41 @@ export async function openingHours(osmId, signal) {
   return hits[0]?.extratags?.opening_hours || null;
 }
 
+/**
+ * The shared copy of a trip, kept by a Google Apps Script web app.
+ *
+ * Apps Script does not answer a CORS preflight, so the POST carries no
+ * Content-Type header at all: a bare string body stays a "simple request" and
+ * is never preflighted. Setting `application/json` here would break it, which
+ * is why the body is stringified by hand and handed over raw.
+ *
+ * The endpoint URL is not in this repository. It is the only credential the
+ * script has, so it lives in the traveller's own settings and is passed to
+ * whoever they are travelling with.
+ */
+export async function pullTrip(endpoint, code, signal) {
+  const u = new URL(endpoint);
+  u.searchParams.set('action', 'load');
+  u.searchParams.set('code', code);
+  const res = await getJSON(u, signal);
+  if (res?.error) throw new Error(res.error);
+  return res;                       // { rev, savedAt, by, state } or { rev: 0 }
+}
+
+/** Send the whole trip. `force` overwrites a copy this device has not seen. */
+export async function pushTrip(endpoint, code, body, signal) {
+  const r = await fetch(endpoint, {
+    method: 'POST',
+    signal,
+    // Deliberately no headers. See pullTrip.
+    body: JSON.stringify({ action: 'save', code, ...body }),
+  });
+  if (!r.ok) throw new Error(`the sync service returned ${r.status}`);
+  const res = await r.json();
+  if (res?.error) throw new Error(res.error);
+  return res;                       // { ok, rev, savedAt } or { conflict, rev }
+}
+
 /** Resolve a single typed/pasted address. Nominatim ranks better than Photon here. */
 export async function geocode(q, signal) {
   const u = new URL(NOMINATIM);

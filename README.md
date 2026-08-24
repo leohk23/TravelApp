@@ -6,6 +6,10 @@ day's stops, drag to reorder, and split the costs with whoever came along.
 Static page. No backend, no build step, no npm dependencies — **and no API keys
 or billing account.** Everything runs against free, keyless services.
 
+Trips live in one browser. To share one with the people you are travelling
+with, see [SHARING.md](SHARING.md) — it deploys a small Google Apps Script you
+own, and takes about five minutes.
+
 ## Run it
 
 ```

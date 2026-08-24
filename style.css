@@ -1140,3 +1140,15 @@ button.icon.trip-settings svg { width: 19px; height: 19px; fill: currentColor; }
 @media (prefers-reduced-motion: reduce) {
   #stops.slide-fwd, #stops.slide-back { animation: none; }
 }
+
+/* ---------- sharing a trip ---------- */
+.sync-h { margin: 0 0 2px; }
+.sync-code { display: flex; gap: 8px; align-items: center; }
+.sync-code input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sync-code button { flex: 0 0 auto; }
+.sync-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.sync-row button { flex: 1 1 auto; }
+/* The state line is the only place the app admits what a sync just did, so it
+   says something even when nothing happened. */
+.sync-state { margin: 0; font-size: 12.5px; color: var(--dim); font-style: italic; }
+.sync-state.bad { color: var(--bad); font-style: normal; }
