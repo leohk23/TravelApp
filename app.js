@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v66';
+const BUILD = 'v67';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -2475,7 +2475,7 @@ function deviceName() {
   return 'another device';
 }
 
-$('#syncNew').onclick = () => { syncCfg().code = newCode(); syncCfg().synced = 0; save(); openAbout(); };
+$('#syncNew').onclick = () => { syncCfg().code = newCode(); syncCfg().synced = 0; save(); showSyncFields(); };
 $('#syncUrl').onchange = e => { syncCfg().url = e.target.value.trim(); save(); showSyncState(); };
 $('#syncCode').onchange = e => {
   const next = e.target.value.trim();
@@ -2494,13 +2494,17 @@ $('#syncPull').onclick = async () => {
 };
 
 function openAbout() {
-  const s = syncCfg();
   $('#placeLang').value = state.placeLang || 'en';
   $('#buildNo').textContent = BUILD;
+  if (!$('#aboutDlg').open) $('#aboutDlg').showModal();
+}
+
+/** Sharing lives in Trip settings: the code belongs to the trip, not the app. */
+function showSyncFields() {
+  const s = syncCfg();
   $('#syncUrl').value = s.url || '';
   $('#syncCode').value = s.code || '';
   showSyncState();
-  if (!$('#aboutDlg').open) $('#aboutDlg').showModal();
 }
 
 $('#aboutBtn').onclick = openAbout;
@@ -2822,6 +2826,7 @@ function openDayDlg() {
   const first = state.days.find(d => d.date);
   tripCal.focus(first?.date);
   renderDayTable();
+  showSyncFields();
   if (!$('#dayDlg').open) $('#dayDlg').showModal();   // showModal throws if already open
 }
 
