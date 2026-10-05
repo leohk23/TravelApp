@@ -64,18 +64,21 @@
 <main>
 
   <!-- ---------- Overview: every day on one screen ---------- -->
+  <!-- The map and its splitter are lent here from the day plan by showTab(). -->
   <section id="overview" hidden>
-    <div class="pane wide">
-      <div class="ov-head">
-        <div class="ov-title">
-          <input id="tripName" class="title" aria-label="Trip name" placeholder="Name this trip">
-          <p id="ovMeta"></p>
+    <div class="cols map-cols" id="ovCols">
+      <div class="pane">
+        <div class="ov-head">
+          <div class="ov-title">
+            <input id="tripName" class="title" aria-label="Trip name" placeholder="Name this trip">
+            <p id="ovMeta"></p>
+          </div>
+          <span class="spacer"></span>
+          <button id="printBtn" class="icon" type="button" title="Print this trip" aria-label="Print this trip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v4H7V3zm-3 5h16a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-2v4H6v-4H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zm4 8v4h8v-4H8zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg></button>
         </div>
-        <span class="spacer"></span>
-        <button id="printBtn" class="icon" type="button" title="Print this trip" aria-label="Print this trip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v4H7V3zm-3 5h16a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-2v4H6v-4H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zm4 8v4h8v-4H8zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg></button>
+        <ol id="ovDays"></ol>
+        <div class="overview-foot"><button id="aboutBtn" class="about-link" type="button">About</button></div>
       </div>
-      <ol id="ovDays"></ol>
-      <div class="overview-foot"><button id="aboutBtn" class="about-link" type="button">About</button></div>
     </div>
   </section>
 
@@ -104,7 +107,7 @@
 
   <!-- ---------- Day plan: per-day stops and transit ---------- -->
   <section id="local" hidden>
-    <div class="cols" id="localCols">
+    <div class="cols map-cols" id="localCols">
       <div class="pane" id="planPane">
 
         <div id="dayBookings" class="day-bookings"></div>
@@ -151,7 +154,7 @@
               aria-controls="settle">Summary</button>
     </nav>
     <div class="cols">
-      <div id="moneyRecords" class="pane" role="tabpanel" aria-labelledby="moneyRecordsTab">
+      <div id="moneyRecords" class="pane wide" role="tabpanel" aria-labelledby="moneyRecordsTab">
         <div class="expense-currency">
           <label class="cur-lbl">Currency <select id="currency"></select></label>
         </div>
@@ -163,7 +166,7 @@
         </form>
         <ul id="expenses"></ul>
       </div>
-      <div id="settle" class="pane" role="tabpanel" aria-labelledby="moneySummaryTab"></div>
+      <div id="settle" class="pane wide" role="tabpanel" aria-labelledby="moneySummaryTab"></div>
     </div>
   </section>
 

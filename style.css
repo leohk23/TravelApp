@@ -16,6 +16,8 @@
   --r: 12px;
   --r-sm: 8px;
   --tap: 40px;
+  --gutter: 14px;    /* a pane's side padding */
+  --col: 900px;      /* the widest a column of reading gets */
   --shadow: 0 1px 2px #0b122008, 0 2px 8px #0b12200a;
   --shadow-lg: 0 8px 30px #0b122024;
   --fade: 140ms cubic-bezier(.2, .7, .3, 1);
@@ -182,8 +184,11 @@ button.icon {
 main { flex: 1; min-height: 0; display: flex; order: 5; }
 main > section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cols { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.pane { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 14px 20px; }
-.pane.wide { max-width: 940px; }
+.pane { flex: 1; min-width: 0; overflow-y: auto; padding: 14px var(--gutter) 20px; }
+/* Centred by its padding, not narrowed by a max-width. The pane is what
+   scrolls, so a max-width stopped it - scrollbar and all - in the middle of a
+   wide window, with a third of the screen empty beside it. */
+.pane.wide { padding-inline: max(var(--gutter), (100% - var(--col)) / 2); }
 #map { flex: 1; min-width: 0; min-height: 0; border-top: 1px solid var(--line); background: var(--sunk); z-index: 0; }
 
 .daybar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
@@ -400,20 +405,23 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
 /* ---------- phones: the ribbon becomes a bottom tab bar ---------- */
 /* Desktop only: side by side, and the ribbon returns to the top. */
 @media (min-width: 821px) {
+  :root { --gutter: 18px; }
   header { order: 0; }
   .daystrip { order: 0; }
   main { order: 0; }
 
   .cols { flex-direction: row; }
   #map { min-height: 0; border-left: 1px solid var(--line); border-top: 0; }
-  .pane { padding: 16px 18px 28px; }
+  .pane { padding: 16px var(--gutter) 28px; }
 
   .ribbon {
     order: 0; padding: 8px 12px 0;
     border-top: 0; border-bottom: 1px solid var(--line); box-shadow: none;
   }
+  /* Shared out evenly, as they are on the phone's bottom bar. Packed at the
+     left they left most of the bar empty and the four looked unfinished. */
   .ribbon button {
-    flex: 0 0 auto; flex-direction: row; gap: 10px; justify-content: flex-start;
+    flex: 1 1 0; flex-direction: row; gap: 10px; justify-content: center;
     padding: 8px 16px; min-height: 46px; border-radius: var(--r-sm) var(--r-sm) 0 0;
   }
   .ribbon button svg { width: 20px; height: 20px; }
@@ -486,10 +494,10 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
 
 /* ---------- print: the overview is the thing worth putting on paper ---------- */
 @media print {
-  header, .ribbon, .daystrip, .ov-head button, .overview-foot, #map { display: none !important; }
+  header, .ribbon, .daystrip, .ov-head button, .overview-foot, #map, .splitter { display: none !important; }
   body { height: auto; background: #fff; color: #000; }
   main > section:not(#overview) { display: none !important; }
-  #overview { display: block !important; }
+  #overview, #ovCols { display: block !important; }
   .pane { overflow: visible; padding: 0; max-width: none; }
   .ovday {
     box-shadow: none; border: 1px solid #ccc; cursor: default;
@@ -635,7 +643,9 @@ dialog[open] {
 /* ---------- itinerary sub-ribbon ---------- */
 .subribbon {
   display: flex; gap: 4px; align-items: center; flex: 0 0 auto;
-  padding: 8px 18px; border-bottom: 1px solid var(--line); background: var(--bg);
+  /* the same column as the pane under it, so the controls line up with it */
+  padding: 8px max(var(--gutter), (100% - var(--col)) / 2);
+  border-bottom: 1px solid var(--line); background: var(--bg);
   overflow-x: auto; scrollbar-width: none;
 }
 .subribbon::-webkit-scrollbar { display: none; }
@@ -648,7 +658,6 @@ dialog[open] {
 .subribbon input[type=search] { min-height: 32px; max-width: 230px; flex: 1 1 120px; }
 .money-tabs { justify-content: center; }
 .money-tabs button { flex: 1 1 0; max-width: 180px; }
-#money .cols > .pane { width: 100%; max-width: 940px; margin-inline: auto; }
 
 .grouphead {
   font-size: 12px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700;
@@ -687,8 +696,9 @@ li.hint { display: block; margin-bottom: 12px; }
 }
 
 /* ---------- resizable list/map split ---------- */
-#localCols > .pane { flex: 0 1 72%; }     /* JS restores the saved ratio */
-#localCols > #map { flex: 1 1 auto; position: relative; }
+/* Overview and Day plan both; the one map moves to whichever is open. */
+.map-cols > .pane { flex: 0 1 72%; }     /* JS restores the saved ratio */
+.map-cols > #map { flex: 1 1 auto; position: relative; }
 
 .splitter {
   display: block; flex: 0 0 18px; height: 18px; cursor: row-resize; position: relative;
@@ -717,8 +727,8 @@ li.hint { display: block; margin-bottom: 12px; }
 .mapbtn:hover { background: var(--card); border-color: var(--accent); }
 
 /* The map's expand control temporarily hides the plan. */
-#localCols.view-map > .pane, #localCols.view-map > .splitter { display: none; }
-#localCols.view-map > #map { flex: 1 1 auto; min-height: 0; }
+.map-cols.view-map > .pane, .map-cols.view-map > .splitter { display: none; }
+.map-cols.view-map > #map { flex: 1 1 auto; min-height: 0; }
 
 /* Desktop adapts the same split into side-by-side panes. */
 @media (min-width: 821px) {

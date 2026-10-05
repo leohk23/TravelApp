@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v68';
+const BUILD = 'v69';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -13,6 +13,7 @@ const blank = () => ({
   itinerary: [],                  // flights, trains, hotels - the trip skeleton
   days: [blankDay()], dayIdx: 0,   // per-day plans
   mapView: 'split', split: 0.72,   // Day plan layout and plan/map size ratio
+  splitWide: 0.45,                 // the same ratio when plan and map sit side by side
   placeLang: 'en',                 // 'en' or 'local' for how place names are shown
   rev: 0,                          // counts edits, so a sync knows who moved
   sync: { url: '', code: '', synced: 0, at: '' },   // never leaves this device
@@ -277,13 +278,15 @@ async function optimize() {
 }
 
 /* ---------- map (Leaflet + OpenStreetMap tiles) ---------- */
-let map, layer;
+// One map, lent to whichever tab is showing it: the whole trip in the
+// overview, the open day in the day plan. `fit` is what it was last asked to
+// frame, kept so it can be framed again once it can be measured.
+let map, layer, fit;
 /** The accent as the stylesheet currently has it, so the map follows the theme. */
 const rideColour = () =>
   getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3388ff';
 
 function drawMap() {
-  const d = day();
   if (typeof L === "undefined") return;   // CDN blocked; the rest of the app still works
   if (!map) {
     map = L.map('map').setView([22.302, 114.17], 11);
@@ -299,23 +302,71 @@ function drawMap() {
       .setPosition('bottomleft');        // frees the other corner for the plan actions
   }
   layer?.remove();
+  layer = L.layerGroup().addTo(map);
+  const pts = state.tab === 'overview' ? drawTrip(layer) : drawDay(day(), layer);
+  fit = pts.length ? pts : null;
+  refit();
+}
+
+/**
+ * Frame what the map is showing. Leaflet measures 0x0 inside a hidden tab, and
+ * framing at that size zoomed to the limit on whatever sat in the middle, so
+ * this skips until the map can be seen and showTab() asks again.
+ */
+function refit() {
+  if (!map || !fit || !map.getContainer().offsetWidth) return;
+  map.invalidateSize();
+  map.fitBounds(fit, { padding: [40, 40], maxZoom: 15 });
+}
+
+const pin = (p, mark, more = '') => L.marker([p.lat, p.lng], {
+  // an emoji is its own picture, a number needs the disc behind it
+  icon: L.divIcon({ className: `pin${mark.length > 1 ? ' glyph' : ''}`, html: mark, iconSize: [24, 24] }),
+  title: leadName(p),
+}).bindPopup(`<b>${esc(leadName(p))}</b>`
+  + (altName(p) ? `<br>${esc(altName(p))}` : '')
+  + (p.address ? `<br><small>${esc(p.address)}</small>` : '')
+  + (more ? `<br><small>${esc(more)}</small>` : ''));
+
+/** One day's stops and the way between them. Returns the points to frame. */
+function drawDay(d, group) {
   // Numbered against every stop, drawn for the ones that belong on this map,
   // so a pin and its row in the plan never disagree about which stop it is.
   const all = d.items.filter(isPlace);
   const places = mapPlaces(d.items);
-  const legs = dayLegs(d);
-  if (!places.length) return;
+  if (!places.length) return [];
+  for (const p of places) pin(p, stopMark(p, all.indexOf(p) + 1)).addTo(group);
+  return [...places.map(p => [p.lat, p.lng]), ...drawLegs(d, places, group)];
+}
 
-  layer = L.layerGroup(places.map(p => {
-    const mark = stopMark(p, all.indexOf(p) + 1);
-    const glyph = mark.length > 1;          // an emoji, not a number
-    return L.marker([p.lat, p.lng], {
-      icon: L.divIcon({ className: `pin${glyph ? ' glyph' : ''}`, html: mark, iconSize: [24, 24] }),
-      title: leadName(p),
-    }).bindPopup(`<b>${esc(leadName(p))}</b>`
-      + (altName(p) ? `<br>${esc(altName(p))}` : '')
-      + (p.address ? `<br><small>${esc(p.address)}</small>` : ''));
-  })).addTo(map);
+/**
+ * The whole trip, for the overview. Every day draws its legs as it would on
+ * its own, but a pin carries its day's number rather than its stop number, so
+ * the map reads as where each day goes. A place on several days - the hotel,
+ * above all - is one pin that says which days.
+ */
+function drawTrip(group) {
+  const pins = new Map();          // position -> { p, mark, days }
+  const pts = [];
+  state.days.forEach((d, i) => {
+    const places = mapPlaces(d.items);
+    pts.push(...drawLegs(d, places, group));
+    for (const p of places) {
+      const at = `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
+      if (pins.has(at)) pins.get(at).days.add(i + 1);
+      else pins.set(at, { p, mark: stopMark(p, i + 1), days: new Set([i + 1]) });
+    }
+  });
+  for (const { p, mark, days } of pins.values()) {
+    pin(p, mark, `${days.size > 1 ? 'Days' : 'Day'} ${[...days].join(', ')}`).addTo(group);
+    pts.push([p.lat, p.lng]);
+  }
+  return pts;
+}
+
+/** The legs between a day's places, drawn into `group`. Returns their points. */
+function drawLegs(d, places, group) {
+  const legs = dayLegs(d);
   // The route as it is actually travelled, where the router gave us one.
   // A straight line between two stops crosses whatever is in the way, which
   // in Fukuoka means the line to Nokonoshima ran over the sea and the subway
@@ -342,17 +393,15 @@ function drawMap() {
         weight: walk ? 3 : 4,
         opacity: walk ? 0.6 : 0.9,
         dashArray: walk ? '4 6' : null,
-      }).addTo(layer);
+      }).addTo(group);
     }
     // No shape, so say only what is certain: these two stops are connected.
     if (!any) {
       L.polyline([[a.lat, a.lng], [b.lat, b.lng]],
-        { weight: 2, opacity: 0.35, dashArray: '2 6' }).addTo(layer);
+        { weight: 2, opacity: 0.35, dashArray: '2 6' }).addTo(group);
     }
   }
-
-  const bounds = [...places.map(p => [p.lat, p.lng]), ...drawn];
-  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  return drawn;
 }
 
 /**
@@ -446,14 +495,27 @@ const MIN_SPLIT = 0.18, MAX_SPLIT = 0.82;
 const EXPAND_ICON = 'M3 3h7v2H5v5H3V3zm11 0h7v7h-2V5h-5V3zM3 14h2v5h5v2H3v-7zm16 0h2v7h-7v-2h5v-5z';
 const COLLAPSE_ICON = 'M10 3v5a2 2 0 0 1-2 2H3V8h5V3h2zm4 0h2v5h5v2h-5a2 2 0 0 1-2-2V3zM3 14h5a2 2 0 0 1 2 2v5H8v-5H3v-2zm13 0h5v2h-5v5h-2v-5a2 2 0 0 1 2-2z';
 
+// A phone stacks the plan over the map and desktop sets them side by side, so
+// the ratio is a share of the height in one and of the width in the other.
+// Sharing one number gave desktop a list 72% of the window wide, sized for a
+// phone's height, with the map squeezed into what was left.
+const SPLIT_DEFAULT = { split: 0.72, splitWide: 0.45 };
+const stacked = () => matchMedia('(max-width: 820px)').matches;
+const splitKey = () => stacked() ? 'split' : 'splitWide';
+const getSplit = () => state[splitKey()] ?? SPLIT_DEFAULT[splitKey()];
+const setSplit = v => { state[splitKey()] = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, v)); };
+
+// Both tabs that show the map lay out the same way, so they share the split,
+// and the map keeps its size when it moves between them.
 function applyMapLayout() {
-  const cols = $('#localCols');
   const view = state.mapView === 'map' ? 'map' : 'split';
-  const split = state.split ?? 0.72;
-  cols.classList.toggle('view-map', view === 'map');
-  cols.querySelector('.pane').style.flexBasis = `${split * 100}%`;
+  const split = getSplit();
+  for (const cols of document.querySelectorAll('.map-cols')) {
+    cols.classList.toggle('view-map', view === 'map');
+    cols.querySelector('.pane').style.flexBasis = `${split * 100}%`;
+  }
   const splitter = $('#localSplit');
-  splitter.setAttribute('aria-orientation', matchMedia('(max-width: 820px)').matches ? 'horizontal' : 'vertical');
+  splitter.setAttribute('aria-orientation', stacked() ? 'horizontal' : 'vertical');
   splitter.setAttribute('aria-valuemin', Math.round(MIN_SPLIT * 100));
   splitter.setAttribute('aria-valuemax', Math.round(MAX_SPLIT * 100));
   splitter.setAttribute('aria-valuenow', Math.round(split * 100));
@@ -465,17 +527,14 @@ function applyMapLayout() {
 }
 
 {
-  const cols = $('#localCols');
   const splitter = $('#localSplit');
   let dragging = false;
 
-  const vertical = () => matchMedia('(max-width: 820px)').matches;
   const setFromPointer = e => {
-    const r = cols.getBoundingClientRect();
-    const size = vertical() ? r.height : r.width;
+    const r = splitter.parentElement.getBoundingClientRect();   // whichever tab has it
+    const size = stacked() ? r.height : r.width;
     if (!size) return;
-    const next = vertical() ? (e.clientY - r.top) / size : (e.clientX - r.left) / size;
-    state.split = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, next));
+    setSplit(stacked() ? (e.clientY - r.top) / size : (e.clientX - r.left) / size);
     applyMapLayout();
     map?.invalidateSize();
   };
@@ -501,17 +560,17 @@ function applyMapLayout() {
   // Keyboard, because a drag handle with no alternative is unusable for some.
   splitter.addEventListener('keydown', e => {
     const step = e.shiftKey ? 0.1 : 0.02;
-    const less = vertical() ? e.key === 'ArrowUp' : e.key === 'ArrowLeft';
-    const more = vertical() ? e.key === 'ArrowDown' : e.key === 'ArrowRight';
-    if (less) state.split = Math.max(MIN_SPLIT, (state.split ?? 0.72) - step);
-    else if (more) state.split = Math.min(MAX_SPLIT, (state.split ?? 0.72) + step);
+    const less = stacked() ? e.key === 'ArrowUp' : e.key === 'ArrowLeft';
+    const more = stacked() ? e.key === 'ArrowDown' : e.key === 'ArrowRight';
+    if (less) setSplit(getSplit() - step);
+    else if (more) setSplit(getSplit() + step);
     else return;
     e.preventDefault();
     applyMapLayout(); map?.invalidateSize(); save();
   });
 
   splitter.addEventListener('dblclick', () => {
-    state.split = 0.72; applyMapLayout(); map?.invalidateSize(); save();
+    setSplit(SPLIT_DEFAULT[splitKey()]); applyMapLayout(); map?.invalidateSize(); save();
   });
 
   $('#mapFull').onclick = () => {
@@ -2193,6 +2252,9 @@ function syncChrome() {
 
 function showTab(name) {
   state.tab = name;
+  // The map moves in before rendering, so it is drawn where it will be seen.
+  const cols = { overview: $('#ovCols'), local: $('#localCols') }[name];
+  if (cols && $('#map').parentElement !== cols) cols.append($('#localSplit'), $('#map'));
   render();          // pick up edits made under another tab
   for (const b of document.querySelectorAll('[data-tab]')) {
     const on = b.dataset.tab === name;
@@ -2201,11 +2263,8 @@ function showTab(name) {
     $('#' + b.dataset.tab).hidden = !on;
   }
   syncChrome();
-  // Leaflet measures 0x0 while its container is hidden.
-  if (name === 'local') {
-    prepareDayPlan();
-    setTimeout(() => map?.invalidateSize(), 0);
-  }
+  if (name === 'local') prepareDayPlan();
+  refit();           // rendered while hidden, so framed only now it has a size
   save();
 }
 
