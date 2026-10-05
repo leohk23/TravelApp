@@ -127,6 +127,29 @@ async function runSearch(q, { near, tags, limit, box, lang }, signal) {
 }
 
 /**
+ * The one place a name in an imported plan most likely means, or null.
+ *
+ * Stricter than search(), because nobody watches each answer the way they
+ * watch type-ahead: never further than `km` from `near` and no falling back
+ * to anywhere, since a shop of the same name in the next prefecture is worse
+ * than no pin. Of what is left, the nearest wins, not the best known: Photon
+ * ranked the 想夫恋 in Tosu above the one in Hita that a Hita row means. A
+ * branch the map does not name ("一蘭 本社総本店") is tried again without its
+ * last word, which finds the shop itself.
+ */
+export async function findPlace(q, { near, lang, km = 60 }, signal) {
+  const words = q.trim().split(/[\s　]+/);
+  const tries = words.length > 1 ? [q, words.slice(0, -1).join(' ')] : [q];
+  for (const t of tries) {
+    const hits = await runSearch(t, { near, limit: 10, lang, box: bboxAround(near, km) }, signal);
+    const [hit] = hits.map(h => [h, haversine(near, h)]).filter(([, m]) => m <= km * 1000)
+      .sort((a, b) => a[1] - b[1]).map(([h]) => h);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
  * The same place, named in the local language.
  *
  * Photon answers in one language at a time, and `lang=en` is what lets an

@@ -31,7 +31,7 @@ breakpoints.
 |---|---|---|
 | Search-as-you-type places | [Photon](https://photon.komoot.io) (komoot, OSM) | free, no key |
 | Resolve a typed hotel or city | [Nominatim](https://nominatim.openstreetmap.org) (OSM) | free, no key, 1 req/sec |
-| Public transport routing | [Transitous](https://transitous.org) (MOTIS) | free, no key |
+| Public transport and driving routes | [Transitous](https://transitous.org) (MOTIS) | free, no key |
 | Destination timezone | [Open-Meteo](https://open-meteo.com/) | free, no key |
 | Map tiles | [OpenStreetMap](https://www.openstreetmap.org) | free, no key |
 
@@ -63,7 +63,9 @@ departure and arrival days and link back to their itinerary entry.
 
 **Day plan** — tap + and either search for a place or type a free-form activity
 in the same prompt. Drag the ⠿ handle to reorder, and transit legs recompute
-with real line numbers and stop names. **Optimise** reorders by geographic
+with real line numbers and stop names. Each leg says how you travel it: tap
+**🚆 Transit** to make it **🚗 Drive** for a road-trip day, and back again.
+**Optimise** reorders by geographic
 proximity, then re-looks-up the transit. Tap an item to edit its name, duration
 or notes. The map starts compact; drag the divider vertically on a phone or
 horizontally on a desktop to adjust it. The layout is remembered, and the map's
@@ -81,6 +83,15 @@ the task-focused Expenses and Day plan screens.
 on a calendar, then headcount and currency — and generates the day tabs for you.
 Cities are spread evenly across the dates; adjust the allocation afterwards in
 Trip settings, where ↓ applies a city to every following day.
+
+Planned it in a spreadsheet already? The first step of **+ Plan a trip** imports
+an `.xlsx` or `.csv` instead, one row per stop: Day, Date, City, Start, End,
+Place, Activity, By, Notes, Status, Link, Coordinates. Only Day and a Place or
+Activity are needed, the headers can be in English or Chinese (日期, 地點,
+活動, 交通…), and other sheets in the workbook are ignored.
+[data/plan-template.csv](data/plan-template.csv) is the template. Each Place
+is looked up on the map once; a row that says 自駕 or Car is driven. It replaces
+the days and stops, and keeps bookings and expenses.
 
 ## Environments
 

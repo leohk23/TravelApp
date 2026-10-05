@@ -1,11 +1,11 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, pad } from './logic.js';
-import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, pullTrip, pushTrip, STAY_TAGS } from './providers.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, pad, parseCsv, readXlsx, importPlan, densest, eachLimit } from './logic.js';
+import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, pullTrip, pushTrip, findPlace, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v70';
+const BUILD = 'v71';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -314,9 +314,9 @@ function drawMap() {
  * this skips until the map can be seen and showTab() asks again.
  */
 function refit() {
-  if (!map || !fit || !map.getContainer().offsetWidth) return;
-  map.invalidateSize();
-  map.fitBounds(fit, { padding: [40, 40], maxZoom: 15 });
+  if (!map || !map.getContainer().offsetWidth) return;
+  map.invalidateSize();             // even with nothing to frame, or the tiles stop short
+  if (fit) map.fitBounds(fit, { padding: [40, 40], maxZoom: 15 });
 }
 
 const pin = (p, mark, more = '') => L.marker([p.lat, p.lng], {
@@ -1606,7 +1606,9 @@ function itemRow(d, row, ord, cutoff = null) {
   const it = d.items[row.i];
   const li = document.createElement('li');
   li.className = 'stop' + (row.place ? '' : ' note') + (it.flightId ? ' via-airport' : '') + (it.hotelId ? ' via-hotel' : '');
-  const sub = it.notes || (row.place ? it.address : '') || '';
+  // The first line of the notes only. An imported stop carries several, and
+  // run together they read as one unbroken string; the rest are in the stop.
+  const sub = it.notes?.split('\n')[0] || (row.place ? it.address : '') || '';
   const warn = stopWarning(d, it, row, cutoff);
   li.innerHTML = `
     <div class="grip" title="Drag to reorder">⠿</div>
@@ -2439,6 +2441,128 @@ async function buildTrip() {
 }
 
 $('#setupBtn').onclick = openWizard;
+
+/* ---------- importing a plan from a spreadsheet ---------- */
+$('#wImport').onclick = () => $('#importFile').click();
+$('#importFile').onchange = e => {
+  const file = e.target.files[0];
+  e.target.value = '';                 // so the same file, edited, imports again
+  if (file) importFile(file);
+};
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * A new plan from a spreadsheet, in place of the days you have.
+ *
+ * The same replacement the wizard makes: days and their stops go, bookings
+ * and expenses stay. A plan file carries neither, and a confirmation number
+ * lost to an import is not one the file can give back.
+ */
+async function importFile(file) {
+  let plan;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let sheets;
+    if (/\.xlsx$/i.test(file.name)) sheets = await readXlsx(bytes);
+    else {
+      let text;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+      catch { throw new Error('it is not saved as UTF-8. In Excel, save it as "CSV UTF-8", or import the .xlsx instead'); }
+      sheets = [{ name: file.name, rows: parseCsv(text) }];
+    }
+    plan = importPlan(sheets);
+  } catch (err) {
+    return toast(`Could not import ${file.name}: ${err.message}.`);
+  }
+
+  const typed = $('#wTrip').value.trim();
+  $('#wizard').close();                // one modal at a time, or they fight over focus
+  if (state.days.some(d => d.items.length)) {
+    const ok = await ask({
+      title: 'Replace the current plan?',
+      body: `${file.name} has ${plural(plan.days.length, 'day')} and ${plural(plan.stops, 'stop')}. `
+        + `They replace the ${plural(state.days.length, 'day')} you have now. Bookings and expenses are kept.`,
+      confirm: 'Replace', danger: true,
+    });
+    if (!ok) return;
+  }
+
+  state.days = plan.days;
+  state.dayIdx = 0;
+  // A name typed into the wizard wins. The wizard opens with the current name
+  // filled in, though, and that one belongs to the plan being replaced.
+  state.name = (typed !== state.name && typed)
+    || file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_+/g, ' ').trim() || state.name;
+  save();
+  render();
+  showTab('overview');
+  for (const w of plan.warnings) toast(w, '');
+  findImported(plan.lookups);
+}
+
+/**
+ * Puts an imported plan's places on the map.
+ *
+ * A row names a place in words and routing needs a point. Short names are
+ * ambiguous on their own - the first 福岡 anyone's index offers is a station
+ * in Toyama - so the trip is located first, from where its names agree, and
+ * every city is looked up near that, every place near its city. A miss stays
+ * a free-form entry rather than becoming a guess; picking it from search
+ * places it. Three requests at a time, and a lookup given up on after 45
+ * seconds: Photon is free and some afternoons slow, and one stuck answer must
+ * not hold up the rest.
+ */
+async function findImported(lookups) {
+  if (!lookups.length) return;
+  const lang = state.placeLang === 'local' ? null : 'en';
+  const days = state.days;
+  const limit = () => AbortSignal.timeout(45000);
+  let found = 0;
+  setBusy(1);
+  toast(`Looking up ${plural(lookups.length, 'place')} on the map. On a slow day this takes a minute or two.`, '');
+  try {
+    // Cities say where a trip is better than shop names do. Only a one-city
+    // trip needs its places asked as well.
+    const cityNames = [...new Set(lookups.map(l => l.city).filter(Boolean))];
+    const names = cityNames.length > 1 ? cityNames
+      : [...new Set([...cityNames, ...lookups.map(l => l.item.name)])].slice(0, 8);
+    const groups = await eachLimit(names, 3, q => search(q, { limit: 8, lang }, limit()).catch(() => []));
+    const anchor = densest(groups);
+    if (!anchor) {
+      return toast('Could not tell where this trip is, so its places are notes for now. Open one and pick it from search.', '');
+    }
+    // A city is the best-known place of that name in the trip's part of the
+    // world: the city itself if the index has it, then its station, and a
+    // whole prefecture last. Best known, not nearest: nearest to a trip centred
+    // on Fukuoka, 別府 is a neighbourhood of Fukuoka and Beppu's hot springs are
+    // a hundred kilometres outside every search. Prefecture last, or 福岡 is
+    // Fukuoka Prefecture, whose middle is nearer Dazaifu than Tenjin.
+    const rank = h => (h.type === 'city' ? 0 : ['state', 'county', 'country'].includes(h.type) ? 2 : 1);
+    const cities = new Map(cityNames.map((c, i) => [c, groups[i]
+      .filter(h => haversine(anchor, h) <= 300000)
+      .sort((a, b) => rank(a) - rank(b))[0] || null]));
+
+    await eachLimit(lookups, 3, async ({ day: d, item, city }) => {
+      if (state.days !== days) return;               // another import replaced it meanwhile
+      const near = cities.get(city) || anchor;
+      if (city === d.city && cities.get(city)) d.cityPt ||= { lat: near.lat, lng: near.lng };
+      const hit = await findPlace(item.name, { near, lang }, limit()).catch(() => null);
+      if (!hit || state.days !== days) return;
+      Object.assign(item, { lat: hit.lat, lng: hit.lng, address: hit.label });
+      d.legs = [];                     // which stops are places changed, so every leg did
+      found++;
+      save();
+      render();
+    });
+  } finally { setBusy(-1); }
+  if (state.days !== days) return;
+  toast(found === lookups.length
+    ? `Found all ${plural(found, 'place')} on the map.`
+    : `Found ${found} of ${plural(lookups.length, 'place')} on the map. The rest are notes for now: open one and pick it from search, or give it Coordinates in the sheet.`,
+    found === lookups.length ? 'ok' : '');
+  if (state.tab === 'local') prepareDayPlan();
+}
 /* ---------- sharing a trip ---------- */
 
 /**

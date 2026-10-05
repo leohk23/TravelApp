@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan } from './logic.js';
+import zlib from 'node:zlib';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, parseCsv, readXlsx, importPlan, cellTime, cellDate, cellPoint, densest, eachLimit } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -646,5 +647,146 @@ assert.equal(fmtInstant("2026-09-01T09:02:00Z", "Europe/London"), "10:02", "summ
 assert.equal(fmtInstant("2026-12-01T09:02:00Z", "Europe/London"), "09:02", "winter time applied");
 assert.equal(fmtInstant("", "Asia/Tokyo"), "", "no instant, no time");
 assert.equal(fmtInstant("not a date", "Asia/Tokyo"), "", "junk does not throw");
+
+// --- importing a plan from a spreadsheet ---
+assert.deepEqual(parseCsv('﻿Day,Place\r\n1,"Canal City, Hakata"\r\n2,"say ""hi""\nthere"\n'),
+  [['Day', 'Place'], ['1', 'Canal City, Hakata'], ['2', 'say "hi"\nthere']], 'quotes, commas, BOM and CRLF');
+assert.deepEqual(parseCsv('Day;Place\n1;Kinrin'), [['Day', 'Place'], ['1', 'Kinrin']], 'a semicolon locale');
+
+assert.equal(cellTime('9:30'), '09:30');
+assert.equal(cellTime('17.30'), '17:30');
+assert.equal(cellTime('5:30 pm'), '17:30');
+assert.equal(cellTime('12:15 am'), '00:15');
+assert.equal(cellTime('0.729166667'), '17:30', "Excel's fraction of a day");
+assert.equal(cellTime('46415.375'), '09:00', 'a date and time keeps the time');
+assert.equal(cellTime('抵埗後'), null, 'words are not a time');
+assert.equal(cellTime('25:00'), null);
+assert.equal(cellDate('2027/1/28'), '2027-01-28');
+assert.equal(cellDate('46415'), '2027-01-28', "Excel's day count");
+assert.equal(cellDate('28/1/2027'), '2027-01-28', 'only day-first fits');
+assert.equal(cellDate('1/28/2027'), '2027-01-28', 'only month-first fits');
+assert.equal(cellDate('5/3/2027'), null, 'either fits, so no guess');
+assert.equal(cellDate('2027-13-01'), null);
+assert.deepEqual(cellPoint('33.2667, 131.3690'), { lat: 33.2667, lng: 131.369 });
+assert.equal(cellPoint('300, 10'), null);
+
+{
+  // A title above the header, a blank Day carrying on, words for a start time,
+  // a status and a link with nowhere else to go, and a drive.
+  const plan = importPlan([
+    { name: 'Shortlist', rows: [['Restaurant', 'Area'], ['Ichiran', 'Nakasu']] },
+    { name: '行程', rows: [
+      ['Kyushu, five days'],
+      [],
+      ['Day', '日期', '地區', '開始', '結束', '地點', '活動', '交通/車程', '備註', '狀態', 'Source URL', '座標'],
+      ['Day 1', '2027-01-28', '福岡', '抵埗後', '', '', '機場→酒店', '', '', '暫定', '', ''],
+      ['', '', '福岡', '17:30', '19:00', 'とんかつ わか葉', '晚餐', '', '不可預約', '候選', 'https://tabelog.com/x', ''],
+      ['Day 3', '', '日田→由布院', '0.4375', '0.5', '進撃の巨人 in HITA ミュージアム', '', '自駕', '', '', '', ''],
+      ['', '', '由布院', '7:00', '7:45', '金鱗湖', '清晨散步', '步行', '', '', '', '33.2667, 131.3690'],
+    ] },
+  ]);
+  assert.equal(plan.days.length, 3, 'a day with no rows is still a day');
+  assert.equal(plan.stops, 4);
+  const [d1, d2, d3] = plan.days;
+  assert.deepEqual([d1.date, d2.date, d3.date], ['2027-01-28', '2027-01-29', '2027-01-30'], 'one date dates them all');
+  assert.equal(d1.items[0].name, '機場→酒店', 'an activity alone is the name');
+  assert.equal(d1.items[0].at, undefined, 'no time, so it follows on');
+  assert.equal(d1.items[0].notes, '開始: 抵埗後\n狀態: 暫定', 'kept under the sheet\'s own headers');
+  assert.equal(d1.items[1].name, 'とんかつ わか葉', 'a blank Day carries on');
+  assert.equal(d1.items[1].at, '17:30');
+  assert.equal(d1.items[1].stayMin, 90);
+  assert.equal(d1.items[1].notes, '晚餐\n不可預約\n狀態: 候選\nhttps://tabelog.com/x');
+  assert.equal(d1.start, '16:30', 'the hour after landing comes before the 17:30 dinner');
+  assert.equal(d2.start, '09:00', 'nothing planned, the default');
+  assert.equal(d3.start, '10:30', 'a fixed first stop starts the day');
+  assert.equal(d3.city, '由布院', 'the day ends where you sleep');
+  assert.equal(d3.items[0].by, 'car');
+  assert.equal(d3.items[0].at, '10:30');
+  assert.equal(d3.items[1].by, undefined, 'walking is not driving');
+  assert.equal(d3.items[1].lat, 33.2667, 'coordinates skip the lookup');
+  assert.deepEqual(plan.lookups.map(l => [l.item.name, l.city]),
+    [['とんかつ わか葉', '福岡'], ['進撃の巨人 in HITA ミュージアム', '由布院']],
+    'only places without coordinates are looked up, and "日田→由布院" is where you end up');
+  assert.equal(plan.lookups[1].day, d3);
+  assert.deepEqual(plan.warnings, []);
+  assert.throws(() => importPlan([{ name: 'x', rows: [['Restaurant', 'Area']] }]), /header row/);
+  const vague = importPlan([{ name: 'x', rows: [['Day', 'Date', 'Place'], ['1', '5/3/2027', 'Kinrin']] }]);
+  assert.equal(vague.days[0].date, '', 'no date rather than a guessed one');
+  assert.match(vague.warnings[0], /day-first or month-first/);
+}
+
+{
+  // Where Nominatim and Photon put these names on their own, and where they are.
+  const toyama = { lat: 36.71, lng: 136.92 }, fukuoka = { lat: 33.59, lng: 130.40 };
+  const tottori = { lat: 35.36, lng: 134.37 }, hita = { lat: 33.32, lng: 130.94 };
+  const mie = { lat: 34.67, lng: 136.18 }, beppu = { lat: 33.28, lng: 131.50 };
+  const dazaifu = { lat: 33.51, lng: 130.52 };
+  const at = densest([[toyama, fukuoka], [tottori, hita], [mie, beppu], [dazaifu]]);
+  assert.ok([fukuoka, hita, beppu, dazaifu].includes(at), 'the names agree on Kyushu');
+  assert.equal(densest([[toyama]]), toyama, 'one name, one answer');
+  assert.equal(densest([[], []]), null);
+}
+
+{
+  let running = 0, most = 0;
+  const out = await eachLimit([30, 10, 20, 5, 15], 2, async (ms, i) => {
+    most = Math.max(most, ++running);
+    await new Promise(r => setTimeout(r, ms));
+    running--;
+    return i * 10;
+  });
+  assert.deepEqual(out, [0, 10, 20, 30, 40], 'results in the order asked, not the order finished');
+  assert.equal(most, 2, 'never more than two at once');
+  assert.deepEqual(await eachLimit([], 3, async () => 1), []);
+}
+
+{
+  // An .xlsx is a zip of XML; build a small one the way Excel writes it,
+  // namespace prefixes, furigana, inline strings and numeric times included.
+  const zip = files => {
+    const parts = [], dir = [];
+    let off = 0;
+    for (const [name, text] of Object.entries(files)) {
+      const raw = Buffer.from(text), data = zlib.deflateRawSync(raw), n = Buffer.from(name);
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(8, 8);
+      local.writeUInt32LE(data.length, 18); local.writeUInt32LE(raw.length, 22); local.writeUInt16LE(n.length, 26);
+      const cen = Buffer.alloc(46);
+      cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(8, 10);
+      cen.writeUInt32LE(data.length, 20); cen.writeUInt32LE(raw.length, 24);
+      cen.writeUInt16LE(n.length, 28); cen.writeUInt32LE(off, 42);
+      parts.push(local, n, data); dir.push(cen, n);
+      off += 30 + n.length + data.length;
+    }
+    const size = dir.reduce((s, b) => s + b.length, 0);
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(dir.length / 2, 8); end.writeUInt16LE(dir.length / 2, 10);
+    end.writeUInt32LE(size, 12); end.writeUInt32LE(off, 16);
+    return new Uint8Array(Buffer.concat([...parts, ...dir, end]));
+  };
+  const ns = 'xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const bytes = zip({
+    'xl/workbook.xml': `<x:workbook ${ns}><x:sheets><x:sheet name="行程" sheetId="1" r:id="R1" xmlns:r="r"/></x:sheets></x:workbook>`,
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="R1" Target="/xl/worksheets/sheet1.xml" Type="t"/></Relationships>',
+    'xl/sharedStrings.xml': `<x:sst ${ns}><x:si><x:t>Day</x:t></x:si><x:si><x:t>Place</x:t></x:si>`
+      + '<x:si><x:r><x:t>金鱗</x:t></x:r><x:r><x:t>湖</x:t></x:r><x:rPh sb="0" eb="2"><x:t>きんりん</x:t></x:rPh></x:si>'
+      + '<x:si><x:t xml:space="preserve">Tom &amp; Jerry</x:t></x:si></x:sst>',
+    'xl/worksheets/sheet1.xml': `<x:worksheet ${ns}><x:sheetData>`
+      + '<x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c><x:c r="C1" t="s"><x:v>1</x:v></x:c><x:c r="D1" t="inlineStr"><x:is><x:t>Start</x:t></x:is></x:c></x:row>'
+      + '<x:row r="3"><x:c r="A3"><x:v>1</x:v></x:c><x:c r="B3" s="1"/><x:c r="C3" t="s"><x:v>2</x:v></x:c><x:c r="D3"><x:v>0.291666667</x:v></x:c></x:row>'
+      + '<x:row r="4"><x:c r="C4" t="s"><x:v>3</x:v></x:c></x:row>'
+      + '</x:sheetData></x:worksheet>',
+  });
+  const sheets = await readXlsx(bytes);
+  assert.equal(sheets.length, 1);
+  assert.equal(sheets[0].name, '行程');
+  assert.deepEqual(sheets[0].rows[0], ['Day', '', 'Place', 'Start'], 'a gap between cells stays a gap');
+  assert.deepEqual(sheets[0].rows[1], [], 'an empty row keeps its place');
+  assert.deepEqual(sheets[0].rows[2], ['1', '', '金鱗湖', '0.291666667'], 'runs joined, furigana dropped');
+  assert.deepEqual(sheets[0].rows[3], ['', '', 'Tom & Jerry']);
+  const plan = importPlan(sheets);
+  assert.deepEqual(plan.days[0].items.map(it => [it.name, it.at]), [['金鱗湖', '07:00'], ['Tom & Jerry', undefined]]);
+  await assert.rejects(readXlsx(new Uint8Array([1, 2, 3])), /not an .xlsx/);
+}
 
 console.log('all good');

@@ -182,6 +182,15 @@
     <label>What do you want to call this trip?
       <input id="wTrip" placeholder="Japan, spring 2026">
     </label>
+    <!-- A plan made in a spreadsheet starts a trip too, and skips the rest. -->
+    <div class="wiz-import">
+      <p>Already planned it in a spreadsheet? Import it instead, one row per stop.</p>
+      <div class="wiz-import-row">
+        <button id="wImport" type="button">Import .xlsx or .csv</button>
+        <a href="data/plan-template.csv" download="plan-template.csv">Download the template</a>
+      </div>
+      <input id="importFile" type="file" accept=".xlsx,.csv" hidden>
+    </div>
   </div>
 
   <div class="wiz-body" data-step="1" hidden>

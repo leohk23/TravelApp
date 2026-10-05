@@ -400,6 +400,14 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
 .dots i { width: 7px; height: 7px; border-radius: 99px; background: var(--line); transition: background var(--fade); }
 .dots i.on { background: var(--accent); }
 .cityrow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+/* The way in for a plan that already exists, under the question it skips. */
+.wiz-import { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.wiz-import p { margin: 0; color: var(--dim); font-size: 13px; }
+.wiz-import-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.wiz-import-row a {
+  display: inline-flex; align-items: center; min-height: var(--tap);
+  color: var(--accent); font-size: 13px;
+}
 .cityrow input[type=number] { width: 7ch; text-align: center; }
 
 /* ---------- phones: the ribbon becomes a bottom tab bar ---------- */

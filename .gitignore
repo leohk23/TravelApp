@@ -11,3 +11,8 @@ trip.json
 # Personal Claude Code settings for this checkout. Not team-wide, and this repo
 # is public.
 .claude/settings.local.json
+
+# Trip spreadsheets dropped here to import. They are personal plans, and this
+# repo is public.
+/*.xlsx
+/*.csv

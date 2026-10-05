@@ -863,3 +863,346 @@ export function fmtInstant(iso, timeZone) {
     ...(timeZone ? { timeZone } : {}),
   }).format(d);
 }
+
+/* ---------- importing a plan from a spreadsheet ---------- */
+
+/**
+ * Rows of a CSV file. A quoted field may hold commas, line breaks and doubled
+ * quotes. Excel's UTF-8 export starts with a byte-order mark, which would
+ * otherwise stick to the first header, and some locales separate with
+ * semicolons, so the separator is whichever the first line uses most.
+ */
+export function parseCsv(text) {
+  const s = text.replace(/^﻿/, '');
+  const first = s.slice(0, s.search(/\r|\n|$/));
+  const sep = [',', ';', '\t'].reduce((a, b) => (first.split(b).length > first.split(a).length ? b : a));
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quoted) {
+      if (c === '"' && s[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === sep) { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && s[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+const unxml = s => s.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(\w+));/gi, (m, hex, dec, name) =>
+  hex ? String.fromCodePoint(parseInt(hex, 16))
+  : dec ? String.fromCodePoint(+dec)
+  : ({ lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" })[name] ?? m);
+
+/** An element's attributes, namespace prefixes dropped: r:id is just id. */
+const attrsOf = tag => Object.fromEntries([...tag.matchAll(/([\w:.-]+)="([^"]*)"/g)]
+  .map(m => [m[1].replace(/^[\w.-]+:/, ''), unxml(m[2])]));
+
+/** Text of every <t> in a fragment, joined: one cell can be several runs. */
+const textOf = xml => [...xml.matchAll(/<(?:\w+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?t>/g)]
+  .map(m => unxml(m[1])).join('');
+
+/**
+ * The files in a zip that `want` asks for, as text.
+ *
+ * An .xlsx is a zip of XML. Browsers inflate deflate streams themselves now
+ * that DecompressionStream exists, so reading one needs only the central
+ * directory walked by hand - no library.
+ */
+async function unzip(bytes, want) {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let end = -1;                            // the directory's end record, near the tail
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+    if (v.getUint32(i, true) === 0x06054b50) { end = i; break; }
+  }
+  if (end < 0) throw new Error('it is not an .xlsx file');
+  const out = {};
+  let p = v.getUint32(end + 16, true);
+  for (let k = v.getUint16(end + 10, true); k > 0; k--) {
+    if (v.getUint32(p, true) !== 0x02014b50) throw new Error('the file is damaged');
+    const method = v.getUint16(p + 10, true);
+    const size = v.getUint32(p + 20, true);
+    const nameLen = v.getUint16(p + 28, true);
+    const local = v.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    p += 46 + nameLen + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+    if (!want(name)) continue;
+    const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true);
+    let data = bytes.subarray(start, start + size);
+    if (method === 8) {
+      data = new Uint8Array(await new Response(
+        new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    } else if (method !== 0) throw new Error('it is compressed in a way this cannot read');
+    out[name] = new TextDecoder().decode(data);
+  }
+  return out;
+}
+
+/**
+ * Every sheet of an .xlsx file as rows of strings, in workbook order.
+ *
+ * Numbers stay as Excel stores them - a time is a fraction of a day, a date a
+ * count of days - because only the column says which it is. Furigana runs are
+ * dropped: they are readings, and would otherwise be glued onto the name.
+ */
+export async function readXlsx(bytes) {
+  const files = await unzip(bytes, n =>
+    /^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|sharedStrings\.xml|worksheets\/[^/]+\.xml)$/.test(n));
+  const book = files['xl/workbook.xml'];
+  if (!book) throw new Error('it is not an .xlsx file');
+  const strings = [...(files['xl/sharedStrings.xml'] || '').matchAll(/<(?:\w+:)?si>([\s\S]*?)<\/(?:\w+:)?si>/g)]
+    .map(m => textOf(m[1].replace(/<(?:\w+:)?rPh\b[\s\S]*?<\/(?:\w+:)?rPh>/g, '')));
+  const targets = Object.fromEntries([...(files['xl/_rels/workbook.xml.rels'] || '')
+    .matchAll(/<(?:\w+:)?Relationship\b([^>]*)>/g)].map(m => attrsOf(m[1])).map(a => [a.Id, a.Target]));
+
+  return [...book.matchAll(/<(?:\w+:)?sheet\b([^>]*)>/g)].map(m => attrsOf(m[1])).map(a => {
+    const target = String(targets[a.id] || '');
+    const xml = files[target.startsWith('/') ? target.slice(1) : `xl/${target}`] || '';
+    const rows = [];
+    let r = 0;
+    for (const row of xml.matchAll(/<(?:\w+:)?row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?row>)/g)) {
+      r = +attrsOf(row[1]).r || r + 1;
+      const cells = [];
+      let c = -1;
+      for (const cell of (row[2] || '').matchAll(/<(?:\w+:)?c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?c>)/g)) {
+        const at = attrsOf(cell[1]);
+        const col = /^([A-Z]+)/.exec(at.r || '')?.[1];
+        c = col ? [...col].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1 : c + 1;
+        const body = cell[2] || '';
+        const raw = /<(?:\w+:)?v>([\s\S]*?)<\/(?:\w+:)?v>/.exec(body)?.[1];
+        cells[c] = at.t === 's' ? strings[+raw] ?? ''
+          : at.t === 'inlineStr' ? textOf(body)
+          : at.t === 'b' ? (raw === '1' ? 'TRUE' : 'FALSE')
+          : at.t === 'e' ? ''
+          : unxml(raw ?? '');
+      }
+      rows[r - 1] = Array.from(cells, x => x ?? '');
+    }
+    return { name: a.name || '', rows: Array.from(rows, x => x ?? []) };
+  });
+}
+
+/**
+ * The columns a plan is read from, by header: English, and the Chinese a
+ * planning sheet in Hong Kong is likely to use already. A header matches whole,
+ * or by what comes before a slash or bracket, so 交通/車程 is 交通.
+ */
+const PLAN_COLUMNS = {
+  day: ['day', '日', '天'],
+  date: ['date', '日期'],
+  city: ['city', 'area', '城市', '地區', '地区'],
+  start: ['start', '開始', '开始'],
+  end: ['end', '結束', '结束'],
+  place: ['place', '地點', '地点'],
+  activity: ['activity', '活動', '活动'],
+  by: ['by', 'travel', '交通'],
+  notes: ['notes', 'note', '備註', '备注'],
+  status: ['status', '狀態', '状态'],
+  link: ['link', 'url', 'source url', '連結', '链接'],
+  coords: ['coordinates', 'coords', '座標', '坐标'],
+};
+
+const columnOf = header => {
+  const whole = String(header || '').trim().toLowerCase();
+  const head = whole.split(/[/／(（]/)[0].trim();
+  return Object.keys(PLAN_COLUMNS)
+    .find(k => PLAN_COLUMNS[k].includes(whole) || PLAN_COLUMNS[k].includes(head)) || null;
+};
+
+/** "17:30", "9.30", "5:30 pm", or Excel's fraction of a day, as HH:MM. */
+export function cellTime(v) {
+  const s = String(v ?? '').trim();
+  const m = /^(\d{1,2})[:：.](\d{2})(?::\d{2})?\s*(am|pm)?$/i.exec(s);
+  if (m) {
+    if (+m[1] > 23 || +m[2] > 59) return null;
+    const h = (+m[1] % (m[3] ? 12 : 24)) + (m[3]?.toLowerCase() === 'pm' ? 12 : 0);
+    return `${pad(h)}:${m[2]}`;
+  }
+  if (!/^\d*\.\d+$|^0$/.test(s)) return null;
+  const min = Math.round((+s % 1) * 1440) % 1440;
+  return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+}
+
+/**
+ * "2027-01-28", "2027/1/28", Excel's day count, or a date Excel re-saved a CSV
+ * with in the computer's own order, as an ISO date. 28/1/2027 can only be
+ * day-first and 1/28/2027 only month-first; 5/3/2027 could be either, and a
+ * wrong guess moves the whole trip by months, so that one is null.
+ */
+export function cellDate(v) {
+  const s = String(v ?? '').trim();
+  const iso = (y, m, d) => (m >= 1 && m <= 12 && d >= 1 && d <= 31 ? `${y}-${pad(m)}-${pad(d)}` : null);
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(s);
+  if (m) return iso(m[1], +m[2], +m[3]);
+  m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(s);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    return a > 12 ? iso(m[3], b, a) : b > 12 ? iso(m[3], a, b) : null;
+  }
+  if (!/^\d{5}(\.\d+)?$/.test(s)) return null;
+  return new Date(Date.UTC(1899, 11, 30) + Math.floor(+s) * 86400000).toISOString().slice(0, 10);
+}
+
+/** "33.2667, 131.3690", the way Google Maps copies a point, as { lat, lng }. */
+export function cellPoint(v) {
+  const m = /(-?\d{1,3}(?:\.\d+)?)\s*[,，;\s]\s*(-?\d{1,3}(?:\.\d+)?)/.exec(String(v ?? ''));
+  if (!m) return null;
+  const lat = +m[1], lng = +m[2];
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+}
+
+const DRIVE = /car|drive|driving|自駕|自驾|揸車|開車|开车|租車|租车/i;
+
+/**
+ * `fn` over every item, no more than `n` running at once, results in order.
+ * For lookups against someone's free server: enough at a time that a slow
+ * afternoon does not take ten minutes, few enough to stay a polite client.
+ */
+export async function eachLimit(items, n, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  }));
+  return out;
+}
+
+/**
+ * Where a trip is, from the candidates each of its names turned up.
+ *
+ * One short name is hopeless on its own: 福岡 is first a station in Toyama,
+ * 日田 a district of Tottori and 由布院 a hamlet in China. Together they are
+ * not, because only one part of the world has all of them within reach of
+ * each other. `groups` holds one list of candidate points per name; the
+ * answer is the candidate with the most other names nearby, or null.
+ */
+export function densest(groups, km = 150) {
+  let best = null, most = 0;
+  for (const g of groups) {
+    for (const p of g) {
+      const n = groups.filter(h => h.some(q => kmBetween(p, q) <= km)).length;
+      if (n > most) { best = p; most = n; }
+    }
+  }
+  return best;
+}
+
+/**
+ * A day-by-day plan out of a spreadsheet: one row per stop.
+ *
+ * The first sheet with a Day column and a Place or Activity column is the
+ * plan. Every other sheet is left alone, so a shortlist or a to-do list can
+ * live in the same workbook. A blank Day carries on from the row above, the
+ * way a merged cell reads. A Place is something to find on the map; an
+ * Activity alone is a free-form entry that takes time but is never routed.
+ *
+ * Nothing is dropped quietly. What a stop has no field for - a status, a
+ * link, a start written as words - goes into its notes under the sheet's own
+ * header.
+ *
+ * Returns { days, lookups: [{ day, item, city }], stops, warnings }, and throws
+ * when no sheet looks like a plan.
+ */
+export function importPlan(sheets) {
+  let sheet, at = -1, cols;
+  for (const s of sheets) {
+    at = s.rows.slice(0, 20).findIndex(r => {
+      const keys = r.map(columnOf);
+      return keys.includes('day') && (keys.includes('place') || keys.includes('activity'));
+    });
+    if (at >= 0) { sheet = s; cols = s.rows[at].map(columnOf); break; }
+  }
+  if (!sheet) {
+    throw new Error('no sheet has a header row with a Day column and a Place or Activity column');
+  }
+  const label = k => String(sheet.rows[at][cols.indexOf(k)] || k).trim();
+  const toMin = t => +t.slice(0, 2) * 60 + +t.slice(3);
+
+  const days = new Map();            // day number -> { rows, date }
+  const warnings = [];
+  let dayNo = 0;
+  for (const row of sheet.rows.slice(at + 1)) {
+    const get = k => cols.map((c, i) => (c === k ? String(row[i] ?? '').trim() : ''))
+      .filter(Boolean).join('\n');
+    const n = parseInt(/\d+/.exec(get('day'))?.[0], 10);
+    if (n > 0) dayNo = n;
+    const place = get('place'), activity = get('activity');
+    if (!dayNo || !(place || activity)) continue;
+
+    const startRaw = get('start'), endRaw = get('end');
+    const start = cellTime(startRaw), end = cellTime(endRaw);
+    const item = {
+      name: place || activity,
+      stayMin: start && end ? (toMin(end) - toMin(start) + 1440) % 1440 : 60,
+    };
+    if (start) item.at = start;
+    const notes = [
+      place && activity ? activity : '',
+      startRaw && !start ? `${label('start')}: ${startRaw}` : '',
+      endRaw && !end ? `${label('end')}: ${endRaw}` : '',
+      get('notes'),
+      get('status') ? `${label('status')}: ${get('status')}` : '',
+      get('link'),
+    ].filter(Boolean).join('\n');
+    if (notes) item.notes = notes;
+    const pt = place ? cellPoint(get('coords')) : null;
+    if (pt) Object.assign(item, pt);
+    if (DRIVE.test(get('by'))) item.by = 'car';
+
+    const city = get('city').split(/→|->|⇒/).pop().trim();
+    if (!days.has(dayNo)) days.set(dayNo, { rows: [], date: null });
+    const d = days.get(dayNo);
+    d.rows.push({ item, city, find: Boolean(place && !pt) });
+    d.date ||= cellDate(get('date'));
+    if (get('date') && !cellDate(get('date')) && !warnings.length) {
+      warnings.push(`${get('date')} could be day-first or month-first, so the trip has no dates yet. `
+        + 'Write it as 2027-03-05, or set the dates in Trip settings.');
+    }
+  }
+  if (!days.size) throw new Error(`the ${sheet.name || 'plan'} sheet has a header but no stops under it`);
+
+  // One date is enough: the rest follow from the day numbers.
+  const dated = [...days].find(([, d]) => d.date);
+  const dateFor = n => {
+    if (days.get(n)?.date) return days.get(n).date;
+    if (!dated) return '';
+    const t = new Date(`${dated[1].date}T00:00:00Z`);
+    t.setUTCDate(t.getUTCDate() + n - dated[0]);
+    return t.toISOString().slice(0, 10);
+  };
+
+  // The day starts early enough for what comes before its first fixed time:
+  // "after landing" ahead of a 17:30 dinner is the hour before it, not 17:30
+  // as well.
+  const startOf = items => {
+    const k = items.findIndex(it => it.at);
+    if (k < 0) return '09:00';
+    const min = Math.max(0, toMin(items[k].at) - items.slice(0, k).reduce((n, it) => n + it.stayMin, 0));
+    return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+  };
+
+  const lookups = [];
+  const out = Array.from({ length: Math.max(...days.keys()) }, (_, k) => {
+    const rows = days.get(k + 1)?.rows || [];
+    const day = {
+      date: dateFor(k + 1),
+      // Where the day ends up, which is where you sleep: the city that
+      // narrows the next search and sets the clock.
+      city: [...rows].reverse().find(r => r.city)?.city || '',
+      timeZone: '', start: startOf(rows.map(r => r.item)), end: '',
+      items: rows.map(r => r.item), legs: [],
+    };
+    for (const r of rows) if (r.find) lookups.push({ day, item: r.item, city: r.city || day.city });
+    return day;
+  });
+  return { days: out, lookups, stops: out.reduce((n, d) => n + d.items.length, 0), warnings };
+}
