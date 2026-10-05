@@ -93,7 +93,7 @@ One object in `localStorage['travelapp']`, written by `save()`:
   name, currency, members: [name], tab,      // tab = which ribbon section is open
   itinView, moneyView,                       // active sub-tabs
   dayIdx,                                    // which day tab is open
-  mapView, split,                             // "split" | "map", plan-pane ratio
+  mapView, split, splitWide,                  // "split" | "map", plan-pane ratio stacked / side by side
   itinerary: [{ id, kind, ref, conf, cost, currency?, rate?, notes,
     // a flight carries journeys; every other kind is its own single journey
     legs?: [{ id, ref, from, to, fromPt?, toPt?, fromTz?, toTz?, start, end }],
@@ -102,8 +102,9 @@ One object in `localStorage['travelapp']`, written by `save()`:
   days: [{
     date, city, timeZone, start, end,        // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00", "22:00"
     cityPt,                                  // cached geocode of city, for search bias
-    items: [{ name, localName?, address?, localAddress?, hours?, lat?, lng?, stayMin,
-              at?, atTz?, hotelId?, flightId?, role? }],   // at = a ticket instant, or a clock time you set
+    items: [{ name, localName?, address?, localAddress?, hours?, lat?, lng?, stayMin, notes?,
+              at?, atTz?, hotelId?, flightId?, role?, by? }],   // at = a ticket instant, or a clock time you set
+                                                               // by = 'car' to drive here; absent = transit
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id
@@ -173,6 +174,17 @@ places.
 
 Days used to store `pois`; the loader migrates that to `items` on read.
 
+**Importing a plan** (`.xlsx` or `.csv`, from + Plan a trip) replaces `days`
+and keeps bookings and expenses, as the wizard does. `readXlsx()` unzips with
+the browser's own `DecompressionStream`, so it needs no library. `importPlan()`
+matches columns by header, English or Chinese. Anything a stop has no field for
+goes into its notes. Places are then looked up in `findImported()`, and **short
+names are ambiguous**: Nominatim's first 福岡 is a station in Toyama. So the
+trip is located first, by `densest()` over every city name's candidates. Each
+city is then its best-known match near that point (a city before a station,
+a prefecture last), and each place is the *nearest* match within 60 km of its
+city, which picks the right branch of a chain. A miss stays a free-form note.
+
 `expenses[].src` links an expense back to the booking that generated it, so the
 `+ expense` toggle can add and remove exactly one entry without double-counting.
 
@@ -208,7 +220,9 @@ Everything network-facing is in `providers.js`:
 - **Nominatim** (`nominatim.openstreetmap.org`) — resolves a typed hotel or city
   when it was not selected from search, and `lookup` with `extratags=1` returns
   the `opening_hours` tag for an OSM id, which Photon does not carry.
-- **Transitous** (`api.transitous.org`, a MOTIS instance) — transit routing.
+- **Transitous** (`api.transitous.org`, a MOTIS instance) — transit routing,
+  and driving: a leg whose destination carries `by: 'car'` is asked for
+  `directModes=CAR` with no transit, so a road trip needs no second service.
   Returns a pareto set, not a sorted list, so `route()` picks earliest arrival.
   No fare data, and its `one-to-many` matrix endpoint rejected every coordinate
   format tried. An empty plan is usually not "nothing runs" but "one end is not
@@ -328,6 +342,11 @@ node test.mjs
 
 Then load the page and click through the flow you touched. Most of this app is
 network behaviour and DOM wiring that `test.mjs` cannot reach.
+
+Then ship it. The app is in early development, so every requested change,
+once validated, is committed and pushed to **both** `main` and `preview` as
+the same commit. Wait for the Pages workflow and check both live sites. Skip
+this only when told not to deploy that change.
 
 See [BACKLOG.md](BACKLOG.md) for what was deliberately left out and when to
 build it.
