@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -87,6 +87,8 @@ assert.deepEqual(datesFrom("2026-04-14", 0), [], "empty range");
 
 assert.equal(fmtTime(1500), '01:00 +1');
 assert.equal(fmtDur(5400), '1h 30');
+assert.equal(fmtKm(715), '0.7 km');
+assert.equal(fmtKm(71912), '72 km');
 assert.equal(fmtStay(30), '30m');
 assert.equal(fmtStay(60), '1h');
 assert.equal(fmtStay(90), '1h 30m');

@@ -89,6 +89,9 @@ export function fmtDur(sec) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${pad(m % 60)}`;
 }
 
+/** A road distance: tenths while that still means something, whole km after. */
+export const fmtKm = m => (m < 10000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 1000)} km`);
+
 /**
  * Order stops to minimise total travel time.
  * M[i][j] = seconds from i to j. pinFirst keeps stop 0 as the start (your hotel).

@@ -88,8 +88,9 @@ a rename, and booking costs in a foreign currency.
   Expenses are the part that genuinely wants many writers, and they are
   append-only by nature: an add and a delete keyed by id cannot conflict.
   *Build when being asked to choose starts happening more than once a trip.*
-- **Non-transit modes.** Transit only. Driving, walking-only days, ferries as a
-  first-class choice. *Build for a trip where transit is not the default.*
+- **More travel modes.** Driving is built, per leg, from the same Transitous
+  instance. Still missing: walking-only legs, cycling, and the cost of a drive
+  (fuel, tolls, parking). *Build for a trip that needs one of them.*
 - **Vendor Leaflet.** It loads from unpkg with an SRI hash. If unpkg is down the
   map dies, though everything else still works. *Build if you want the site to
   have zero external runtime dependencies.*

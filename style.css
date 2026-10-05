@@ -898,6 +898,13 @@ main > section { position: relative; }
 
 /* ---------- the full journey ---------- */
 .leg { flex-wrap: wrap; }
+/* How you get there, first on the row. A word beside the icon, because the
+   word is what says it is a choice you can change. Never hidden behind hover. */
+.leg .by {
+  order: 0; flex: 0 0 auto; min-height: 32px; padding: 0 10px;
+  border-radius: 99px; font-size: 12px; font-weight: 600; color: var(--dim);
+}
+.leg .by.car { color: var(--accent); border-color: var(--accent); background: transparent; }
 .leg .dur { order: 1; }
 .leg .fare, .leg .fare-link { order: 3; margin-left: auto; }
 

@@ -1,11 +1,11 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtStay, pad } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, pad } from './logic.js';
 import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, pullTrip, pushTrip, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v69';
+const BUILD = 'v70';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -247,7 +247,7 @@ async function recalc() {
       const hop = flightHop(d.items[from], d.items[to]);
       if (hop) { d.legs[from] = hop; save(); renderPlan(); continue; }
       try {
-        const leg = await route(d.items[from], d.items[to], t);
+        const leg = await route(d.items[from], d.items[to], t, { by: d.items[to].by });
         d.legs[from] = leg;          // keyed by origin index, matching scheduleDay
         if (leg) t = new Date(t.getTime() + leg.seconds * 1000);
       } catch (e) {
@@ -722,6 +722,13 @@ async function ensureLinkedStops(d = day()) {
   const body = [...head, ...kept, ...tail];
   const night = bed && !sameSpot(body[body.length - 1] || {}, bed) ? [bed] : [];
   const next = [...body, ...night];
+  // How you get to a derived stop is yours, not the booking's, so it survives
+  // the stop being rebuilt. Driving back to the hotel stays a drive.
+  for (const it of next) {
+    if (!it.hotelId && !it.flightId) continue;
+    const was = d.items.find(o => o.hotelId === it.hotelId && o.flightId === it.flightId && o.role === it.role);
+    if (was?.by) it.by = was.by;
+  }
 
   const key = list => JSON.stringify(list.map(it =>
     [it.name, it.address, it.localName, it.lat, it.lng, it.stayMin, it.hotelId, it.flightId, it.role, it.at, it.atTz]));
@@ -744,7 +751,13 @@ async function prepareDayPlan(d = day()) {
   if (hotelStartPending.has(d)) return;
   hotelStartPending.add(d);
   try {
-    if (await ensureLinkedStops(d) && d === day()) recalc();
+    const rebuilt = await ensureLinkedStops(d);
+    // A leg never asked for is undefined; null is an answer, that nothing runs.
+    // Without this a day only routed once something on it changed, so the demo
+    // and an imported trip opened with "no route" on every leg.
+    const unasked = placePairs(d.items).some(([from, to]) =>
+      d.legs?.[from] === undefined && !flightHop(d.items[from], d.items[to]));
+    if ((rebuilt || unasked) && d === day()) recalc();
   } catch (err) { toast(`Could not place this day's bookings: ${err.message}`); }
   finally { hotelStartPending.delete(d); }
 }
@@ -1663,9 +1676,11 @@ function itemRow(d, row, ord, cutoff = null) {
 const STEP_ICON = {
   WALK: '🚶', SUBWAY: '🚇', METRO: '🚇', BUS: '🚌', TRAM: '🚊',
   RAIL: '🚆', REGIONAL_RAIL: '🚆', HIGHSPEED_RAIL: '🚄', FERRY: '⛴', COACH: '🚌',
+  CAR: '🚗',
 };
 const stepIcon = m => STEP_ICON[String(m || '').toUpperCase()] || '🚌';
 const prettyMode = m => String(m || '').toLowerCase().replace(/_/g, ' ');
+const isCar = m => String(m || '').toUpperCase() === 'CAR';
 
 function openJourney(d, row) {
   const leg = row.leg;
@@ -1678,12 +1693,16 @@ function openJourney(d, row) {
   // so say so rather than letting the figure look like door to door.
   const moved = [leg.startedAt && `from ${leg.startedAt}`, leg.endedAt && `to ${leg.endedAt}`]
     .filter(Boolean).join(' and ');
+  const steps = leg.steps || [];
+  // A drive has no changes to count; how far it is says more.
+  const driven = steps.length > 0 && steps.every(s => isCar(s.mode));
+  const metres = steps.reduce((n, s) => n + (s.metres || 0), 0);
   $('#jSub').textContent = [
     fmtDur(leg.seconds),
-    transfers ? `${transfers} change${transfers > 1 ? 's' : ''}` : 'no changes',
+    driven ? `${fmtKm(metres)} by road`
+      : transfers ? `${transfers} change${transfers > 1 ? 's' : ''}` : 'no changes',
   ].join(', ') + (moved ? `. Timed ${moved}, the nearest station.` : '');
 
-  const steps = leg.steps || [];
   const rows = [];
   steps.forEach((s, i) => {
     // A gap between one step ending and the next starting is time on a platform.
@@ -1697,10 +1716,13 @@ function openJourney(d, row) {
     }
 
     const walk = String(s.mode).toUpperCase() === 'WALK';
+    const car = isCar(s.mode);
     const title = walk
       ? `Walk${s.metres != null ? ` ${s.metres} m` : ''}`
+      : car ? `Drive${s.metres != null ? ` ${fmtKm(s.metres)}` : ''}`
       : `${esc(s.lineName || s.line || prettyMode(s.mode))}${s.headsign ? ` toward ${esc(s.headsign)}` : ''}`;
-    const detail = walk
+    // MOTIS names the two ends of a street-only journey START and END.
+    const detail = walk || car
       ? (s.to && s.to !== 'END' ? `to ${esc(s.to)}` : '')
       : [`${esc(s.from)} to ${esc(s.to)}`,
          s.stops ? `${s.stops} stop${s.stops > 1 ? 's' : ''} between` : '',
@@ -1831,7 +1853,7 @@ function commitActivity() {
   const it = actNew ? {} : day().items[actIdx];
   if (!it) return false;
   const mins = Math.max(0, +$('#actMin').value || 0);
-  const timingChanged = mins !== (it.stayMin ?? 60);
+  let timingChanged = mins !== (it.stayMin ?? 60);
   const routeChanged = actPicked && (it.lat !== actPicked.lat || it.lng !== actPicked.lng);
   it.name = $('#actName').value.trim();
   it.stayMin = mins;
@@ -1937,6 +1959,10 @@ function legRow(d, row) {
   }
 
   li.className = 'leg' + (row.leg ? '' : ' bad');
+  // How you get there belongs to the stop you are heading for, so it moves with
+  // that stop when the day is reordered. Absent means public transport.
+  const dest = d.items[row.to];
+  const driving = dest?.by === 'car';
   // No agency in the feeds tested publishes GTFS fares, so there is no amount to
   // read. What we can do is recognise a journey you have already paid for.
   const key = row.leg ? fareKey(row.leg.lines) : '';
@@ -1966,10 +1992,16 @@ function legRow(d, row) {
     : '+ fare';
 
   li.innerHTML = `
+    <button class="by${driving ? ' car' : ''}" type="button"
+      aria-label="${driving ? 'Driving. Switch to public transport' : 'Public transport. Switch to driving'}"
+      title="${driving ? 'Driving. Tap for public transport' : 'Public transport. Tap to drive instead'}"
+      >${driving ? '🚗 Drive' : '🚆 Transit'}</button>
     <span class="dur">${row.leg ? fmtDur(row.leg.seconds) : 'no route'}</span>
     ${row.leg
       ? `<button class="via" type="button" title="Show every step">${esc(row.leg.summary)}</button>`
-      : '<span class="via">no public transport found - walk it, or check the day has a date set</span>'}
+      : driving
+        ? '<span class="via">no road found between these two</span>'
+        : '<span class="via">no public transport found - walk it, drive it, or check the day has a date set</span>'}
     ${ridden && url ? `<a class="fare-link" href="${esc(url)}" target="_blank" rel="noopener"
        title="Operator fare information">fares</a>` : ''}
     ${ridden ? `<button class="fare${known != null ? ' known' : guess?.exact ? ' exact' : guess ? ' guess' : ''}"
@@ -1980,6 +2012,10 @@ function legRow(d, row) {
 
   li.querySelector('button.via')?.addEventListener('click',
     () => openJourney(d, row));
+  li.querySelector('.by').onclick = () => {
+    if (driving) delete dest.by; else dest.by = 'car';
+    save(); recalc();
+  };
 
   if (li.querySelector('.fare')) li.querySelector('.fare').onclick = async () => {
     const entered = await askText({

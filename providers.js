@@ -2,7 +2,7 @@
 //
 //   search(), searchAirports()  Photon  https://photon.komoot.io  type-ahead over OSM
 //   geocode() Nominatim   https://nominatim.openstreetmap.org   resolve one address
-//   route()   Transitous  https://api.transitous.org    public transport routing (MOTIS)
+//   route()   Transitous  https://api.transitous.org    public transport and driving (MOTIS)
 //   timeZoneAt() Open-Meteo https://api.open-meteo.com  timezone from coordinates
 //
 // Nominatim and Transitous are community-run, so callers debounce and cache
@@ -15,7 +15,7 @@ const MOTIS = 'https://api.transitous.org/api/v1/plan';
 const MOTIS_STOPS = 'https://api.transitous.org/api/v1/map/stops';
 const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast';
 
-import { matchAirports, strandedStop } from './logic.js';
+import { matchAirports, strandedStop, fmtKm } from './logic.js';
 
 const num = v => (typeof v === 'number' ? v : Number(v));
 
@@ -279,22 +279,34 @@ function routeFullName(l) {
 
 function legLabel(l) {
   if (l.mode === 'WALK') return `walk ${Math.round(l.duration / 60)} min`;
+  if (l.mode === 'CAR') return `${fmtKm(l.distance ?? 0)} by road`;
   return `${routeName(l)}  ${l.from?.name ?? '?'} → ${l.to?.name ?? '?'}`;
 }
 
 /**
- * Public transport from A to B leaving at `when` (a Date).
- * Returns { seconds, summary, transfers, arrival } or null when nothing runs.
+ * From A to B leaving at `when` (a Date), by public transport or, with
+ * `by: 'car'`, by road. Returns { seconds, summary, transfers, arrival, steps }
+ * or null when nothing runs.
+ *
+ * Driving is the same MOTIS instance asked for a direct car journey and no
+ * transit, so it needs no second service, key or attribution. The time cap is
+ * raised from MOTIS's default, which would refuse Beppu back to Fukuoka.
  *
  * `seconds` is measured from `when`, not from the itinerary's own departure, so
  * time spent waiting at the stop is included - that is what a timeline needs.
  */
-export async function route(from, to, when, signal) {
+export async function route(from, to, when, { by } = {}, signal) {
+  const car = by === 'car';
   const plan = async (a, b) => {
     const u = new URL(MOTIS);
     u.searchParams.set('fromPlace', `${a.lat},${a.lng}`);
     u.searchParams.set('toPlace', `${b.lat},${b.lng}`);
     u.searchParams.set('time', when.toISOString());
+    if (car) {
+      u.searchParams.set('directModes', 'CAR');
+      u.searchParams.set('transitModes', '');
+      u.searchParams.set('maxDirectTime', String(6 * 3600));
+    }
     const res = await getJSON(u, signal);
     return [...(res.itineraries || []), ...(res.direct || [])];
   };
@@ -306,7 +318,8 @@ export async function route(from, to, when, signal) {
   // reaches, which is exactly what an airport reference point out on the
   // runway is. Only then is it worth two more requests to find a station to
   // start from; a journey that simply does not run still answers no route.
-  if (!options.length) {
+  // A car reaches the airport by road, so driving never needs this.
+  if (!options.length && !car) {
     const [ns, nd] = await Promise.all([stopsNear(from, signal), stopsNear(to, signal)]);
     const a = strandedStop(from, ns), b = strandedStop(to, nd);
     if (a || b) {
@@ -319,7 +332,8 @@ export async function route(from, to, when, signal) {
   // Earliest arrival wins; MOTIS returns a pareto set, not a sorted list.
   const best = options.reduce((a, b) => (new Date(b.endTime) < new Date(a.endTime) ? b : a));
   const arrival = new Date(best.endTime);
-  const ridden = (best.legs || []).filter(l => l.mode !== 'WALK');
+  // Driving is nobody's fare, so a car leg rides nothing as far as fares go.
+  const ridden = (best.legs || []).filter(l => l.mode !== 'WALK' && l.mode !== 'CAR');
   return {
     seconds: Math.max(60, Math.round((arrival - when) / 1000)),
     summary: (best.legs || []).map(legLabel).join('  →  '),
