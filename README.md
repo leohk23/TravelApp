@@ -79,6 +79,11 @@ transfers that square everyone up on a separate screen.
 range, party members, cities and each day's hours. These settings stay out of
 the task-focused Expenses and Day plan screens.
 
+**Share** — the button beside it syncs the trip through a script you deploy
+yourself ([SHARING.md](SHARING.md)). **Copy address and code** copies both
+halves as one message; pasting that message into either field on another
+device fills in both.
+
 **+ Plan a trip** runs a four-step setup — name, cities, travel dates dragged
 on a calendar, then headcount and currency — and generates the day tabs for you.
 Cities are spread evenly across the dates; adjust the allocation afterwards in

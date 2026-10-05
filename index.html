@@ -24,8 +24,11 @@
   <span id="env" hidden>preview</span>
   <span id="busy" hidden>working…</span>
   <span class="spacer"></span>
+  <button id="shareBtn" class="icon share" type="button"
+          title="Share this trip with the people you travel with"
+          aria-label="Share this trip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16.1c-.8 0-1.4.3-2 .8l-7.1-4.2c.1-.2.1-.5.1-.7s0-.5-.1-.7L16 7.2c.5.5 1.2.8 2 .8 1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3c0 .2 0 .5.1.7L8 9.8C7.5 9.3 6.8 9 6 9c-1.7 0-3 1.3-3 3s1.3 3 3 3c.8 0 1.5-.3 2-.8l7.1 4.2c-.1.2-.1.4-.1.6 0 1.6 1.3 2.9 2.9 2.9s2.9-1.3 2.9-2.9-1.2-2.9-2.8-2.9z"/></svg></button>
   <button id="tripSettingsBtn" class="icon trip-settings" type="button"
-          title="Trip settings: dates, days, party and sharing"
+          title="Trip settings: dates, days and party"
           aria-label="Trip settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.5 7.5 0 0 0 .05-.94 7.5 7.5 0 0 0-.05-.94l2.03-1.58-1.92-3.32-2.39.96a7.25 7.25 0 0 0-1.63-.94L14.87 3h-3.74l-.36 3.18a7.25 7.25 0 0 0-1.63.94l-2.39-.96-1.92 3.32 2.03 1.58a7.5 7.5 0 0 0-.05.94c0 .32.02.63.05.94l-2.03 1.58 1.92 3.32 2.39-.96c.5.39 1.05.71 1.63.94l.36 3.18h3.74l.36-3.18a7.25 7.25 0 0 0 1.63-.94l2.39.96 1.92-3.32-2.03-1.58zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
   <button id="setupBtn" class="icon setup" type="button"
           title="Plan a trip: cities, dates, who's coming"
@@ -257,29 +260,6 @@
     <small>The start drives the transit lookups. The end just marks where the day should stop.</small>
   </div>
 
-  <div class="wiz-body trip-sharing">
-    <h3>Sharing</h3>
-    <label>Sync service
-      <input id="syncUrl" type="url" placeholder="https://script.google.com/…/exec"
-        autocomplete="off" spellcheck="false">
-      <small>A Google Apps Script you deploy once. Setup is in SHARING.md.</small>
-    </label>
-    <label>Trip code
-      <span class="sync-code">
-        <input id="syncCode" placeholder="none yet" autocomplete="off" spellcheck="false">
-        <button id="syncNew" type="button" title="Use a fresh, hard-to-guess code">New</button>
-      </span>
-      <small>The service address and this code together are the whole password.
-        Anyone with both can read and overwrite the trip, so send them the way
-        you would send the booking itself.</small>
-    </label>
-    <div class="sync-row">
-      <button id="syncNow" type="button" class="primary">Sync now</button>
-      <button id="syncPull" type="button">Get the shared copy</button>
-    </div>
-    <p id="syncState" class="sync-state"></p>
-  </div>
-
   <div class="wiz-body trip-day-list">
     <h3>Days and cities</h3>
     <div class="daytable-wrap">
@@ -291,6 +271,43 @@
   <div class="wiz-foot">
     <span class="spacer"></span>
     <button id="ddDone" type="button" class="primary">Done</button>
+  </div>
+</dialog>
+
+<!-- Sharing has its own button: it is reached for at a different moment from
+     the dates and the party, usually to pass the trip to someone. -->
+<dialog id="shareDlg">
+  <div class="ask-head">
+    <h2>Share this trip</h2>
+    <p>Everyone with the service address and the trip code can open this trip
+      and save over it. Send both the way you would send the booking itself.</p>
+  </div>
+  <div class="wiz-body">
+    <label>Sync service
+      <input id="syncUrl" type="url" placeholder="https://script.google.com/…/exec"
+        autocomplete="off" spellcheck="false">
+      <small>A Google Apps Script you deploy once. Setup is in SHARING.md.</small>
+    </label>
+    <!-- Not one label round both: a label owns exactly one control, or iOS
+         hands a tap on the row to the wrong one. -->
+    <div class="share-field">
+      <label for="syncCode">Trip code</label>
+      <span class="sync-code">
+        <input id="syncCode" placeholder="none yet" autocomplete="off" spellcheck="false">
+        <button id="syncNew" type="button" title="Use a fresh, hard-to-guess code">New</button>
+      </span>
+      <small>Got both from someone? Paste what they sent into either field.</small>
+    </div>
+    <button id="syncCopy" type="button" class="sync-copy">Copy address and code</button>
+    <div class="sync-row">
+      <button id="syncNow" type="button" class="primary">Sync now</button>
+      <button id="syncPull" type="button">Get the shared copy</button>
+    </div>
+    <p id="syncState" class="sync-state"></p>
+  </div>
+  <div class="wiz-foot">
+    <span class="spacer"></span>
+    <button id="shareDone" type="button">Done</button>
   </div>
 </dialog>
 

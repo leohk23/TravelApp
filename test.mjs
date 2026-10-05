@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, parseCsv, readXlsx, importPlan, cellTime, cellDate, cellPoint, densest, eachLimit } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, parseCsv, readXlsx, importPlan, cellTime, cellDate, cellPoint, densest, eachLimit, shareText, readShare } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -312,6 +312,17 @@ for (const c of FARES.cities) {
 // --- what a sync should do ---
 // rev counts edits here, synced is what last went over the wire, remote is
 // what the shared copy is at.
+{
+  const url = 'https://script.google.com/macros/s/AKfycbx-9_aZ/exec';
+  const text = shareText('Kyushu, 5 days', url, 'k7m2qa9xp');
+  assert.equal(text, `Trip: Kyushu, 5 days\nSync service: ${url}\nTrip code: k7m2qa9xp`);
+  assert.deepEqual(readShare(text), { url, code: 'k7m2qa9xp' }, 'pasted whole');
+  assert.deepEqual(readShare(text.replace(/\n/g, '')), { url, code: 'k7m2qa9xp' },
+    'pasted into a one-line field, which strips the line breaks');
+  assert.deepEqual(readShare('https://example.org/sync\nTrip code: abc'), { url: 'https://example.org/sync', code: 'abc' });
+  assert.deepEqual(readShare(url), { url, code: '' }, 'just an address is an ordinary edit');
+  assert.deepEqual(readShare('k7m2qa9xp'), { url: '', code: '' });
+}
 assert.equal(syncPlan({ rev: 0, synced: 0, remote: 0 }), "same", "nothing anywhere");
 assert.equal(syncPlan({ rev: 4, synced: 4, remote: 4 }), "same", "in step");
 assert.equal(syncPlan({ rev: 5, synced: 4, remote: 4 }), "push", "only this device moved");

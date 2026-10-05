@@ -1171,6 +1171,11 @@ button.icon.trip-settings svg { width: 19px; height: 19px; fill: currentColor; }
 .sync-code { display: flex; gap: 8px; align-items: center; }
 .sync-code input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sync-code button { flex: 0 0 auto; }
+/* The trip code's row: its own label, the field with New beside it, a note. */
+.share-field { display: grid; gap: 6px; }
+.share-field small { color: var(--dim); font-size: 12px; font-style: italic; }
+.sync-copy { width: 100%; }
+button.icon.share svg { width: 18px; height: 18px; fill: currentColor; }
 .sync-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .sync-row button { flex: 1 1 auto; }
 /* The state line is the only place the app admits what a sync just did, so it

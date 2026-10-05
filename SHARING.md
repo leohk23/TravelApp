@@ -23,10 +23,13 @@ pulls the whole trip through it.
 5. Deploy. Google will ask you to authorise it; it wants Drive access because
    that is where it puts the file.
 6. Copy the **Web app URL**. It ends in `/exec`.
-7. In the app: **About → Sharing**, paste the URL, and pick a trip code.
+7. In the app, tap the **Share** button at the top right, paste the URL, and
+   press **New** for a trip code.
 
-Give the URL and the code to whoever you are travelling with. They paste the
-same two things and press **Get the shared copy**.
+Then **Copy address and code** puts both on the clipboard as one message. Send
+it to whoever you are travelling with. They open **Share**, paste the whole
+message into either field, and both fill in. Then they press **Get the
+shared copy**.
 
 *Anyone* sounds alarming and is not optional: your travelling companions are
 not signing in to your Google account, so the script has to be reachable

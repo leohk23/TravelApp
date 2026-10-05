@@ -1,11 +1,11 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, pad, parseCsv, readXlsx, importPlan, densest, eachLimit } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, pad, parseCsv, readXlsx, importPlan, densest, eachLimit, shareText, readShare } from './logic.js';
 import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, pullTrip, pushTrip, findPlace, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
 const STORE = 'travelapp';
 // Kept in step with sw.js by hand. Its whole job is to answer "is this the
 // build we just deployed, or one the browser kept?" from the phone itself.
-const BUILD = 'v71';
+const BUILD = 'v72';
 
 const blankDay = () => ({ date: '', city: '', timeZone: '', start: '09:00', end: '', items: [], legs: [] });
 const blank = () => ({
@@ -2587,6 +2587,7 @@ function showSyncState(msg = null, kind = '') {
   const el = $('#syncState');
   if (!el) return;
   const s = syncCfg();
+  $('#syncCopy').disabled = !(s.url && s.code);    // half a password is no use to anyone
   el.className = `sync-state${kind ? ` ${kind}` : ''}`;
   if (msg) { el.textContent = msg; return; }
   if (!s.url || !s.code) { el.textContent = 'Not sharing this trip yet.'; return; }
@@ -2638,6 +2639,8 @@ async function syncTrip({ pullOnly = false, quiet = false } = {}) {
     if (quiet && plan !== 'pull') { showSyncState(); return; }
 
     if (plan === 'conflict') {
+      const reopen = $('#shareDlg').open;
+      if (reopen) $('#shareDlg').close();           // stacked modals fight over focus
       const keep = await ask({
         title: 'Both copies have changed',
         body: `This device has ${(state.rev || 0) - (s.synced || 0)} unsynced change(s). `
@@ -2645,6 +2648,7 @@ async function syncTrip({ pullOnly = false, quiet = false } = {}) {
           + `${remote.by ? ` on ${remote.by}` : ''}. One of them has to go.`,
         confirm: 'Keep this device', danger: true,
       });
+      if (reopen) openShareDlg();
       plan = keep ? 'force' : 'pull';
     }
 
@@ -2704,13 +2708,48 @@ $('#syncCode').onchange = e => {
 };
 $('#syncNow').onclick = () => syncTrip();
 $('#syncPull').onclick = async () => {
+  $('#shareDlg').close();                         // stacked modals fight over focus
   const ok = await ask({
     title: 'Replace this trip with the shared copy?',
     body: 'Anything on this device that has not been synced is lost.',
     confirm: 'Replace', danger: true,
   });
+  openShareDlg();
   if (ok) syncTrip({ pullOnly: true });
 };
+
+/**
+ * Both halves of the password in one go, labelled, for a chat message. The
+ * other end pastes the whole thing into either field and both fill in.
+ */
+$('#syncCopy').onclick = async () => {
+  const s = syncCfg();
+  try {
+    await navigator.clipboard.writeText(shareText(state.name, s.url, s.code));
+    toast('Copied the address and code. Anyone with them can open this trip and change it.', 'ok');
+  } catch {
+    toast('Could not reach the clipboard here. Copy the two fields one at a time instead.');
+  }
+};
+for (const field of [$('#syncUrl'), $('#syncCode')]) {
+  field.addEventListener('input', () => {
+    const got = readShare(field.value);
+    if (!got.url || !got.code) return;            // an ordinary edit, not a paste of both
+    const s = syncCfg();
+    s.url = got.url;
+    if (got.code !== s.code) { s.code = got.code; s.synced = 0; s.at = ''; }
+    save();
+    showSyncFields();
+    toast('Filled in the address and code. Get the shared copy to open the trip.', 'ok');
+  });
+}
+
+function openShareDlg() {
+  showSyncFields();
+  if (!$('#shareDlg').open) $('#shareDlg').showModal();   // showModal throws if already open
+}
+$('#shareBtn').onclick = openShareDlg;
+$('#shareDone').onclick = () => $('#shareDlg').close();
 
 function openAbout() {
   $('#placeLang').value = state.placeLang || 'en';
@@ -2718,7 +2757,7 @@ function openAbout() {
   if (!$('#aboutDlg').open) $('#aboutDlg').showModal();
 }
 
-/** Sharing lives in Trip settings: the code belongs to the trip, not the app. */
+/** The Share dialog's fields, from this device's own sharing settings. */
 function showSyncFields() {
   const s = syncCfg();
   $('#syncUrl').value = s.url || '';
@@ -3045,7 +3084,6 @@ function openDayDlg() {
   const first = state.days.find(d => d.date);
   tripCal.focus(first?.date);
   renderDayTable();
-  showSyncFields();
   if (!$('#dayDlg').open) $('#dayDlg').showModal();   // showModal throws if already open
 }
 

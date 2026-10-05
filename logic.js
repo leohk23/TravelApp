@@ -616,6 +616,30 @@ export function flightCutoff(items, bufferMin = 120) {
 }
 
 /**
+ * The service address and trip code as one message to send, labelled so the
+ * person it reaches can tell which is which.
+ *
+ * The code goes last on purpose. A one-line field strips line breaks out of a
+ * paste without putting a space back, so this arrives in one as
+ * "…/execTrip code: k7m2…", and with the code last nothing is glued after it.
+ */
+export const shareText = (name, url, code) =>
+  [`Trip: ${name}`, `Sync service: ${url}`, `Trip code: ${code}`].join('\n');
+
+/**
+ * The address and code back out of a pasted shareText(), whole or with its
+ * line breaks stripped. Either is '' when it is not there, so an ordinary
+ * edit of one field reads as nothing to fill.
+ */
+export function readShare(text) {
+  const s = String(text || '');
+  return {
+    url: /https?:\/\/\S+?(?=\s|Trip code:|$)/i.exec(s)?.[0] || '',
+    code: /Trip code:\s*(\S+)/i.exec(s)?.[1] || '',
+  };
+}
+
+/**
  * What a sync should do, from three revision numbers.
  *
  * `rev` counts local edits and `synced` is the rev that last went over the
