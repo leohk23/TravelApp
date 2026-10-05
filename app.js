@@ -148,11 +148,21 @@ $('#askInput').addEventListener('keydown', e => {
 
 /** Transient message. Non-blocking, because an error should not stop you working. */
 function toast(msg, kind = 'bad') {
+  const box = $('#toasts');
+  // Re-shown every time, because the top layer stacks in the order things
+  // open: a dialog opened since the last toast would otherwise sit on top.
+  if (box.showPopover) {
+    if (box.matches(':popover-open')) box.hidePopover();
+    box.showPopover();
+  }
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
   el.textContent = msg;
-  $('#toasts').append(el);
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 250); }, 4200);
+  box.append(el);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => { el.remove(); if (!box.children.length) box.hidePopover?.(); }, 250);
+  }, 4200);
 }
 
 let busy = 0;

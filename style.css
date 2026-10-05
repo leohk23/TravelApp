@@ -528,7 +528,13 @@ button.danger-solid {
 button.danger-solid:hover { background: var(--bad); filter: brightness(1.08); }
 
 /* ---------- toasts ---------- */
+/* inset, margin and the rest undo the browser's popover box, which centres
+   itself in the viewport with a border, a background and a scrollbar. Setting
+   display here also overrides the closed popover's display: none, which is
+   what keeps the toasts from re-running their entrance on every re-show. */
 #toasts {
+  inset: auto; margin: 0; padding: 0; border: 0; background: none;
+  overflow: visible; color: inherit;
   position: fixed; z-index: 2000; left: 50%; transform: translateX(-50%);
   bottom: calc(66px + env(safe-area-inset-bottom)); display: flex;
   flex-direction: column; gap: 8px; align-items: center; pointer-events: none;
