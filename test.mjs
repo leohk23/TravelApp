@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
-import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, parseCsv, readXlsx, importPlan, cellTime, cellDate, cellPoint, densest, eachLimit, shareText, readShare } from './logic.js';
+import { settleUp, optimizeOrder, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, strandedStop, matchAirports, fareKey, estimateFare, exactFare, fareCity, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, parseCsv, readXlsx, importPlan, cellTime, cellDate, cellPoint, densest, placeCities, namesAgree, pendingLookups, eachLimit, shareText, readShare } from './logic.js';
 
 // --- split & settle ---
 const { balances, transfers } = settleUp([
@@ -715,10 +715,17 @@ assert.equal(cellPoint('300, 10'), null);
   assert.equal(d3.items[0].at, '10:30');
   assert.equal(d3.items[1].by, undefined, 'walking is not driving');
   assert.equal(d3.items[1].lat, 33.2667, 'coordinates skip the lookup');
-  assert.deepEqual(plan.lookups.map(l => [l.item.name, l.city]),
+  const pending = pendingLookups(plan.days);
+  assert.deepEqual(pending.map(l => [l.item.name, l.city]),
     [['とんかつ わか葉', '福岡'], ['進撃の巨人 in HITA ミュージアム', '由布院']],
     'only places without coordinates are looked up, and "日田→由布院" is where you end up');
-  assert.equal(plan.lookups[1].day, d3);
+  assert.equal(pending[1].day, d3);
+  assert.equal(d1.items[0].find, undefined, 'an activity is never looked for');
+  // The mark is the whole memory of the lookup, so it outlives a reload.
+  const reloaded = JSON.parse(JSON.stringify(plan.days));
+  assert.equal(pendingLookups(reloaded).length, 2);
+  Object.assign(reloaded[0].items[1], { lat: 33.59, lng: 130.40 });
+  assert.equal(pendingLookups(reloaded).length, 1, 'a stop that has been placed is done');
   assert.deepEqual(plan.warnings, []);
   assert.throws(() => importPlan([{ name: 'x', rows: [['Restaurant', 'Area']] }]), /header row/);
   const vague = importPlan([{ name: 'x', rows: [['Day', 'Date', 'Place'], ['1', '5/3/2027', 'Kinrin']] }]);
@@ -737,6 +744,70 @@ assert.equal(cellPoint('300, 10'), null);
   assert.equal(densest([[toyama]]), toyama, 'one name, one answer');
   assert.equal(densest([[], []]), null);
 }
+
+{
+  // What Photon answers for each city of a road trip from London to the
+  // Highlands, in its own order. The trip is 700 km end to end, and taking
+  // every city within 300 km of its middle lost London, Warwick and Chorley.
+  const c = (type, country, lat, lng) => ({ type, country, lat, lng });
+  const names = ['London', 'Warwick', 'Chorley', 'Orton', 'Douglas', 'Perth', 'Pitlochry',
+    'Glencoe', 'Fort William', 'Glenfinnan', 'Samlesbury'];
+  const groups = [
+    [c('district', 'GB', 51.51, -0.13), c('city', 'CA', 42.98, -81.25), c('other', 'GB', 51.49, -0.14), c('city', 'US', 37.13, -84.08), c('city', 'US', 39.89, -83.45), c('city', 'US', 35.33, -93.25), c('city', 'US', 36.48, -119.44), c('other', 'US', 36.48, -119.44)],
+    [c('city', 'GB', 52.28, -1.59), c('district', 'GB', 52.28, -1.58), c('city', 'US', 41.70, -71.46), c('district', 'US', 41.26, -74.36), c('city', 'US', 41.26, -74.36), c('city', 'AU', -28.22, 152.03), c('district', 'US', 47.85, -98.71), c('city', 'US', 31.83, -83.92)],
+    [c('city', 'GB', 53.65, -2.63), c('district', 'GB', 53.06, -2.64), c('city', 'GB', 53.31, -2.26), c('house', 'GB', 53.65, -2.63), c('district', 'GB', 52.45, -2.44), c('locality', 'GB', 52.70, -1.90), c('street', 'US', 37.29, -76.78), c('house', 'GB', 51.65, -0.52)],
+    [c('district', 'GB', 54.43, -2.53), c('city', 'GB', 54.47, -2.58), c('district', 'GB', 54.87, -3.04), c('district', 'CA', 49.73, -113.27), c('district', 'GB', 52.41, -0.82), c('locality', 'GB', 52.55, -0.29), c('city', 'IT', 42.35, 14.40), c('district', 'US', 38.84, -80.93)],
+    [c('county', 'US', 39.76, -88.22), c('county', 'US', 33.70, -84.76), c('city', 'IM', 54.15, -4.48), c('county', 'US', 39.34, -104.95), c('county', 'US', 36.94, -92.52), c('county', 'US', 45.93, -95.46), c('county', 'US', 38.88, -95.29), c('county', 'US', 46.44, -91.91)],
+    [c('city', 'AU', -31.96, 115.86), c('city', 'GB', 56.40, -3.43), c('county', 'CA', 43.49, -81.02), c('city', 'US', 43.02, -74.19), c('district', 'US', 48.72, -99.46), c('city', 'CA', 44.90, -76.25), c('house', 'GB', 56.39, -3.44), c('house', 'AU', -31.95, 115.86)],
+    [c('city', 'GB', 56.70, -3.74), c('house', 'GB', 56.70, -3.74), c('locality', 'AU', -30.35, 152.57), c('locality', 'AU', -31.95, 152.01), c('street', 'US', 37.29, -76.78), c('house', 'GB', 56.70, -3.72), c('house', 'GB', 56.70, -3.73), c('house', 'GB', 56.70, -3.74)],
+    [c('city', 'US', 42.14, -87.76), c('city', 'GB', 56.68, -5.10), c('city', 'US', 33.96, -85.93), c('city', 'US', 44.77, -94.15), c('city', 'US', 38.71, -84.82), c('city', 'US', 36.23, -96.93), c('locality', 'US', 28.99, -80.95), c('city', 'US', 29.03, -80.97)],
+    [c('city', 'GB', 56.82, -5.11), c('house', 'GB', 56.82, -5.11), c('house', 'GH', 5.17, -1.12), c('house', 'GB', 56.82, -5.09), c('other', '', -62.37, -59.72), c('house', 'US', 43.42, -73.71), c('house', 'CA', 47.57, -52.70), c('house', 'GH', 5.11, -1.24)],
+    [c('house', 'GB', 56.87, -5.45), c('city', 'CA', 46.29, -62.97), c('city', 'GB', 56.87, -5.45), c('house', 'GB', 56.87, -5.45), c('house', 'GB', 56.87, -5.44), c('house', 'GB', 56.87, -5.44), c('house', 'GB', 56.87, -5.45), c('house', 'GB', 56.87, -5.44)],
+    [c('district', 'GB', 53.76, -2.60), c('district', 'GB', 53.77, -2.62), c('house', 'GB', 53.70, -2.59), c('house', 'GB', 53.77, -2.57), c('locality', 'GB', 53.76, -2.58), c('street', 'GB', 53.76, -2.64), c('street', 'US', 31.72, -106.21), c('city', 'ZW', -17.83, 31.05)],
+  ];
+  const got = Object.fromEntries(placeCities(groups).map((h, i) => [names[i], h]));
+  assert.ok(Object.values(got).every(Boolean), 'every city has somewhere');
+  assert.deepEqual([got.London.lat, got.London.lng], [51.51, -0.13], 'London, England, a long way from Perth');
+  assert.equal(got.Warwick.lat, 52.28);
+  assert.deepEqual([got.Chorley.lat, got.Chorley.lng], [53.65, -2.63], 'the Chorley next to Samlesbury, not the one in Cheshire');
+  assert.deepEqual([got.Perth.country, got.Perth.lat], ['GB', 56.40], 'Perth is the Scottish one');
+  assert.equal(got.Glencoe.country, 'GB');
+  assert.equal(got.Glenfinnan.type, 'city', 'the village before a house of that name');
+  assert.equal(got.Orton.lat, 54.47, 'Orton by Tebay, not Peterborough');
+  // Douglas in Lanarkshire is not among Photon's eight, and the Isle of Man
+  // is the nearest it does offer. Its stop is a note, not a guess.
+  assert.equal(got.Douglas.country, 'IM');
+
+  // Two parts of one trip with nothing in between: Tokyo, and 370 km on,
+  // Kyoto and Osaka.
+  const [tokyo, kyoto, osaka] = placeCities([
+    [c('city', 'JP', 35.68, 139.76)],
+    [c('city', 'JP', 35.01, 135.77)],
+    [c('city', 'US', 41.19, -84.11), c('city', 'JP', 34.69, 135.50)],
+  ]);
+  assert.ok(tokyo && kyoto, 'the far end of a train ride is still placed');
+  assert.equal(osaka.country, 'JP', 'and its neighbour from there');
+  const [, london] = placeCities([
+    [c('city', 'GB', 57.48, -4.22)],                               // Inverness
+    [c('city', 'CA', 42.98, -81.25), c('district', 'GB', 51.51, -0.13)],
+  ]);
+  assert.equal(london.country, 'GB', 'a fresh start stays in the country the trip is in');
+  assert.deepEqual(placeCities([[], []]), [null, null]);
+}
+
+// A hit is the place only when its name says so.
+assert.equal(namesAgree('Warwick North Services', 'Perthshire P.A.T. Services'), false,
+  'one word in common is not the same place');
+assert.equal(namesAgree('Warwick North Services', 'Warwick Services'), true);
+assert.equal(namesAgree('Southfields, London', 'Southfield'), false);
+assert.equal(namesAgree('Southfields, London', 'Southfields'), true, 'after the comma is where, not what');
+assert.equal(namesAgree('Paco’s, Perth', "Paco's"), true, 'either apostrophe');
+assert.equal(namesAgree('Travelodge Fort William', 'Travelodge'), true, 'a chain names its branch by the brand');
+assert.equal(namesAgree('The Bluebird Inn, Balderstone', 'The Red Lion Inn'), false);
+assert.equal(namesAgree('Crannog at Garrison West', 'Garrison West'), true, 'most of the words');
+assert.equal(namesAgree('Dazaifu Tenmangu', 'Dazaifu Tenmangū'), true, 'with or without its macron');
+assert.equal(namesAgree('Kushida Shrine', '櫛田神社'), true, 'nothing to compare, so the index decides');
+assert.equal(namesAgree('とんかつ わか葉', 'Tonkatsu Wakaba'), true);
 
 {
   let running = 0, most = 0;

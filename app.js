@@ -1,4 +1,4 @@
-import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, pad, parseCsv, readXlsx, importPlan, densest, eachLimit, shareText, readShare } from './logic.js';
+import { settleUp, optimizeDay, scheduleDay, placePairs, isPlace, mapPlaces, sleepsOn, shiftDates, datesFrom, spreadCities, zonedDateTime, flightSeconds, flightCutoff, fareKey, estimateFare, fareCity, clockOf, pinMinutes, openHours, decodePolyline, bookingCost, syncPlan, fmtInstant, fmtMoney, fmtTime, fmtDur, fmtKm, fmtStay, pad, parseCsv, readXlsx, importPlan, densest, placeCities, pendingLookups, eachLimit, shareText, readShare } from './logic.js';
 import { search, searchCity, searchAirports, geocode, otherName, openingHours, route, timeZoneAt, haversine, pullTrip, pushTrip, findPlace, STAY_TAGS } from './providers.js';
 
 const $ = s => document.querySelector(s);
@@ -291,7 +291,7 @@ async function optimize() {
 // One map, lent to whichever tab is showing it: the whole trip in the
 // overview, the open day in the day plan. `fit` is what it was last asked to
 // frame, kept so it can be framed again once it can be measured.
-let map, layer, fit;
+let map, layer, fit, home;
 /** The accent as the stylesheet currently has it, so the map follows the theme. */
 const rideColour = () =>
   getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3388ff';
@@ -315,6 +315,9 @@ function drawMap() {
   layer = L.layerGroup().addTo(map);
   const pts = state.tab === 'overview' ? drawTrip(layer) : drawDay(day(), layer);
   fit = pts.length ? pts : null;
+  // Nothing pinned yet, but the city is known: open there rather than
+  // wherever the map last was, which on a new trip is Hong Kong.
+  home = fit ? null : (state.tab === 'overview' ? state.days.find(d => d.cityPt) : day())?.cityPt || null;
   refit();
 }
 
@@ -327,6 +330,7 @@ function refit() {
   if (!map || !map.getContainer().offsetWidth) return;
   map.invalidateSize();             // even with nothing to frame, or the tiles stop short
   if (fit) map.fitBounds(fit, { padding: [40, 40], maxZoom: 15 });
+  else if (home) map.setView([home.lat, home.lng], 11);
 }
 
 const pin = (p, mark, more = '') => L.marker([p.lat, p.lng], {
@@ -2508,7 +2512,7 @@ async function importFile(file) {
   render();
   showTab('overview');
   for (const w of plan.warnings) toast(w, '');
-  findImported(plan.lookups);
+  findImported();
 }
 
 /**
@@ -2517,18 +2521,32 @@ async function importFile(file) {
  * A row names a place in words and routing needs a point. Short names are
  * ambiguous on their own - the first 福岡 anyone's index offers is a station
  * in Toyama - so the trip is located first, from where its names agree, and
- * every city is looked up near that, every place near its city. A miss stays
- * a free-form entry rather than becoming a guess; picking it from search
- * places it. Three requests at a time, and a lookup given up on after 45
- * seconds: Photon is free and some afternoons slow, and one stuck answer must
- * not hold up the rest.
+ * grown outward from there a city at a time, and every place is looked up
+ * near its city. A miss stays a free-form entry rather than becoming a guess;
+ * picking it from search places it. Three requests at a time, and a lookup
+ * given up on after 45 seconds: Photon is free and some afternoons slow, and
+ * one stuck answer must not hold up the rest.
+ *
+ * It works from the stops still marked `find`, not from the import, so a run
+ * cut short - a reload, a pull from the shared copy, a search that would not
+ * answer - is finished by the next one, on whichever device opens the trip.
+ * One run at a time; a call during one runs again after it.
  */
-async function findImported(lookups) {
+let finding = false, findAgain = false;
+async function findImported() {
+  if (finding) { findAgain = true; return; }
+  finding = true;
+  try { await findPending(); } finally { finding = false; }
+  if (findAgain) { findAgain = false; findImported(); }
+}
+
+async function findPending() {
+  const days = state.days;
+  const lookups = pendingLookups(days);
   if (!lookups.length) return;
   const lang = state.placeLang === 'local' ? null : 'en';
-  const days = state.days;
   const limit = () => AbortSignal.timeout(45000);
-  let found = 0;
+  let found = 0, unreached = 0;
   setBusy(1);
   toast(`Looking up ${plural(lookups.length, 'place')} on the map. On a slow day this takes a minute or two.`, '');
   try {
@@ -2537,40 +2555,56 @@ async function findImported(lookups) {
     const cityNames = [...new Set(lookups.map(l => l.city).filter(Boolean))];
     const names = cityNames.length > 1 ? cityNames
       : [...new Set([...cityNames, ...lookups.map(l => l.item.name)])].slice(0, 8);
-    const groups = await eachLimit(names, 3, q => search(q, { limit: 8, lang }, limit()).catch(() => []));
+    const failed = new Set();
+    const groups = await eachLimit(names, 3, q => search(q, { limit: 8, lang }, limit())
+      .catch(() => { failed.add(q); return []; }));
+    if (state.days !== days) return;              // replaced meanwhile; the marks went with it
     const anchor = densest(groups);
     if (!anchor) {
+      if (failed.size) {
+        return toast('The map search did not answer, so the places are notes for now. '
+          + 'They are looked up again the next time this trip opens.', '');
+      }
+      for (const l of lookups) delete l.item.find;
+      save();
       return toast('Could not tell where this trip is, so its places are notes for now. Open one and pick it from search.', '');
     }
-    // A city is the best-known place of that name in the trip's part of the
-    // world: the city itself if the index has it, then its station, and a
-    // whole prefecture last. Best known, not nearest: nearest to a trip centred
-    // on Fukuoka, 別府 is a neighbourhood of Fukuoka and Beppu's hot springs are
-    // a hundred kilometres outside every search. Prefecture last, or 福岡 is
-    // Fukuoka Prefecture, whose middle is nearer Dazaifu than Tenjin.
-    const rank = h => (h.type === 'city' ? 0 : ['state', 'county', 'country'].includes(h.type) ? 2 : 1);
-    const cities = new Map(cityNames.map((c, i) => [c, groups[i]
-      .filter(h => haversine(anchor, h) <= 300000)
-      .sort((a, b) => rank(a) - rank(b))[0] || null]));
+    const spots = placeCities(groups);
+    const cities = new Map(cityNames.map((c, i) => [c, spots[i]]));
+    // A day knows where it is before any of its stops are found: the map
+    // opens there, and searches lean towards it.
+    for (const d of days) {
+      const pt = cities.get(d.city);
+      if (pt && !d.cityPt) d.cityPt = { lat: pt.lat, lng: pt.lng };
+    }
+    save();
+    render();
 
     await eachLimit(lookups, 3, async ({ day: d, item, city }) => {
-      if (state.days !== days) return;               // another import replaced it meanwhile
-      const near = cities.get(city) || anchor;
-      if (city === d.city && cities.get(city)) d.cityPt ||= { lat: near.lat, lng: near.lng };
-      const hit = await findPlace(item.name, { near, lang }, limit()).catch(() => null);
-      if (!hit || state.days !== days) return;
-      Object.assign(item, { lat: hit.lat, lng: hit.lng, address: hit.label });
-      d.legs = [];                     // which stops are places changed, so every leg did
-      found++;
+      if (state.days !== days) return;
+      if (failed.has(city)) { unreached++; return; }   // nowhere to look yet
+      const near = cities.get(city) || cities.get(d.city) || anchor;
+      let hit;
+      try { hit = await findPlace(item.name, { near, lang }, limit()); }
+      catch { unreached++; return; }                    // no answer is not "not there"
+      if (state.days !== days) return;
+      delete item.find;
+      if (hit) {
+        Object.assign(item, { lat: hit.lat, lng: hit.lng, address: hit.label });
+        d.legs = [];                   // which stops are places changed, so every leg did
+        found++;
+      }
       save();
-      render();
+      if (hit) render();
     });
   } finally { setBusy(-1); }
   if (state.days !== days) return;
-  toast(found === lookups.length
-    ? `Found all ${plural(found, 'place')} on the map.`
-    : `Found ${found} of ${plural(lookups.length, 'place')} on the map. The rest are notes for now: open one and pick it from search, or give it Coordinates in the sheet.`,
-    found === lookups.length ? 'ok' : '');
+  const n = lookups.length;
+  toast(found === n ? `Found all ${plural(found, 'place')} on the map.`
+    : unreached ? `Found ${found} of ${plural(n, 'place')} on the map. The search did not answer for `
+      + `${unreached}, so ${unreached === 1 ? 'it is' : 'they are'} looked up again the next time this trip opens.`
+    : `Found ${found} of ${plural(n, 'place')} on the map. The rest are notes for now: open one and pick it from search, or give it Coordinates in the sheet.`,
+    found === n ? 'ok' : '');
   if (state.tab === 'local') prepareDayPlan();
 }
 /* ---------- sharing a trip ---------- */
@@ -2616,6 +2650,7 @@ function adopt(remote) {
   saveQuiet();
   render();
   showTab(state.tab);
+  findImported();                     // an import another device had not finished placing
 }
 
 let syncing = false;
@@ -3345,3 +3380,4 @@ showTab(state.tab);
 if (seedDemo) loadDemo(!firstRun);
 else if (firstRun) openWizard();
 else if (state.sync?.url && state.sync?.code) syncTrip({ quiet: true });
+findImported();                       // finish an import a reload cut short

@@ -15,7 +15,7 @@ const MOTIS = 'https://api.transitous.org/api/v1/plan';
 const MOTIS_STOPS = 'https://api.transitous.org/api/v1/map/stops';
 const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast';
 
-import { matchAirports, strandedStop, fmtKm } from './logic.js';
+import { matchAirports, strandedStop, fmtKm, namesAgree } from './logic.js';
 
 const num = v => (typeof v === 'number' ? v : Number(v));
 
@@ -121,6 +121,7 @@ async function runSearch(q, { near, tags, limit, box, lang }, signal) {
       // tree in its grounds.
       osmId: p.osm_id != null ? `${p.osm_type || ''}${p.osm_id}` : null,
       type: p.type,                                  // photon's normalised bucket
+      country: p.countrycode || '',
       kind: (p.osm_value || p.osm_key || '').replace(/_/g, ' '),
     };
   });
@@ -132,7 +133,8 @@ async function runSearch(q, { near, tags, limit, box, lang }, signal) {
  * Stricter than search(), because nobody watches each answer the way they
  * watch type-ahead: never further than `km` from `near` and no falling back
  * to anywhere, since a shop of the same name in the next prefecture is worse
- * than no pin. Of what is left, the nearest wins, not the best known: Photon
+ * than no pin. Nor anything whose name only shares a word with it: see
+ * namesAgree(). Of what is left, the nearest wins, not the best known: Photon
  * ranked the 想夫恋 in Tosu above the one in Hita that a Hita row means. A
  * branch the map does not name ("一蘭 本社総本店") is tried again without its
  * last word, which finds the shop itself.
@@ -142,7 +144,8 @@ export async function findPlace(q, { near, lang, km = 60 }, signal) {
   const tries = words.length > 1 ? [q, words.slice(0, -1).join(' ')] : [q];
   for (const t of tries) {
     const hits = await runSearch(t, { near, limit: 10, lang, box: bboxAround(near, km) }, signal);
-    const [hit] = hits.map(h => [h, haversine(near, h)]).filter(([, m]) => m <= km * 1000)
+    const [hit] = hits.filter(h => namesAgree(q, h.name))
+      .map(h => [h, haversine(near, h)]).filter(([, m]) => m <= km * 1000)
       .sort((a, b) => a[1] - b[1]).map(([h]) => h);
     if (hit) return hit;
   }

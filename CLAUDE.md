@@ -103,8 +103,9 @@ One object in `localStorage['travelapp']`, written by `save()`:
     date, city, timeZone, start, end,        // "2026-04-02", "Tokyo", "Asia/Tokyo", "09:00", "22:00"
     cityPt,                                  // cached geocode of city, for search bias
     items: [{ name, localName?, address?, localAddress?, hours?, lat?, lng?, stayMin, notes?,
-              at?, atTz?, hotelId?, flightId?, role?, by? }],   // at = a ticket instant, or a clock time you set
+              at?, atTz?, hotelId?, flightId?, role?, by?, find? }],   // at = a ticket instant, or a clock time you set
                                                                // by = 'car' to drive here; absent = transit
+                                                               // find = city an imported place is still to be found in
     legs: { [originIndex]: { seconds, summary, transfers, arrival } | null },
   }],
   expenses: [{ desc, amount, payer, sharedBy: [name], src? }],  // src = booking id
@@ -180,10 +181,23 @@ the browser's own `DecompressionStream`, so it needs no library. `importPlan()`
 matches columns by header, English or Chinese. Anything a stop has no field for
 goes into its notes. Places are then looked up in `findImported()`, and **short
 names are ambiguous**: Nominatim's first 福岡 is a station in Toyama. So the
-trip is located first, by `densest()` over every city name's candidates. Each
-city is then its best-known match near that point (a city before a station,
-a prefecture last), and each place is the *nearest* match within 60 km of its
-city, which picks the right branch of a chain. A miss stays a free-form note.
+trip is located first, by `densest()` over every city name's candidates, and
+`placeCities()` grows it outward from there a city at a time: each city is its
+best-known match (a city before a station, a prefecture last) within 300 km of
+a city already placed. Growing matters because a trip is not a circle: London
+to Fort William is 700 km, and every city within 300 km of one centre lost
+England and searched for its stops around Perth. Each place is then the
+*nearest* match within 60 km of its city, which picks the right branch of a
+chain, but only among hits whose name agrees with it (`namesAgree()`): Photon
+matches loosely, and the nearest hit for "Warwick North Services" near Perth
+was an electrician. A miss stays a free-form note.
+
+The lookup takes a minute or two, which is long enough to be cut short by a
+reload, a pull from the shared copy, or a server having a bad afternoon. So an
+imported place carries `find` until a search has actually answered for it,
+`pendingLookups()` lists those, and `findImported()` runs from them on startup
+and after a pull as well as after an import. A search that failed leaves the
+mark for next time; one that answered with nothing clears it.
 
 `expenses[].src` links an expense back to the booking that generated it, so the
 `+ expense` toggle can add and remove exactly one entry without double-counting.

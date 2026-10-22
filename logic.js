@@ -1121,6 +1121,93 @@ export function densest(groups, km = 150) {
 }
 
 /**
+ * Which candidate each name means, or null: the trip grown outward from where
+ * its names agree.
+ *
+ * Every city used to be the best match within 300 km of the one point
+ * `densest()` found. A road trip from London to Fort William is 700 km, so
+ * half of it fell outside and its stops were searched for around Perth, where
+ * the nearest thing with "Services" in its name was an electrician. So the
+ * trip grows a city at a time instead: whichever name has a candidate closest
+ * to one already placed goes next, as long as that is within `km`. A city is
+ * the best-known match within reach - a city before a station, a prefecture
+ * last - not the nearest: nearest to Fukuoka, 別府 is a neighbourhood of
+ * Fukuoka and not Beppu. The prefecture comes last, or 福岡 is Fukuoka
+ * Prefecture, whose middle is nearer Dazaifu than Tenjin.
+ *
+ * A name with nothing in reach is another part of the same trip, a long train
+ * ride away, and starts again where the rest agree - in a country the trip is
+ * already in, if it has a candidate there, so the London after Inverness is
+ * not the one in Ontario.
+ *
+ * `groups` holds one list of candidates per name: { lat, lng, type, country }.
+ */
+export function placeCities(groups, km = 300) {
+  const rank = h => (h.type === 'city' ? 0 : ['state', 'county', 'country'].includes(h.type) ? 2 : 1);
+  const out = groups.map(() => null);
+  const placed = [];
+  for (;;) {
+    const open = groups.map((g, i) => (out[i] ? [] : g));
+    if (!open.some(g => g.length)) return out;
+    const reach = h => Math.min(...placed.map(p => kmBetween(p, h)));
+    const near = open
+      .map((g, i) => g.map(h => ({ i, h, d: reach(h) })).filter(o => o.d <= km)
+        .sort((a, b) => rank(a.h) - rank(b.h) || a.d - b.d)[0])
+      .filter(Boolean);
+    let i, h;
+    if (near.length) ({ i, h } = near.reduce((a, b) => (b.d < a.d ? b : a)));
+    else {
+      const home = new Set(placed.map(p => p.country).filter(Boolean));
+      h = densest(open.map(g => g.filter(c => home.has(c.country)))) || densest(open);
+      i = open.findIndex(g => g.includes(h));
+    }
+    out[i] = h;
+    placed.push(h);
+  }
+}
+
+/** Words of a name in Latin script, for comparing two spellings of it. */
+const LINK_WORDS = ['the', 'a', 'an', 'at', 'by', 'of', 'and', 'de', 'la', 'le', 'du'];
+const wordsOf = s => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/['’`]/g, '').split(/[^a-z0-9]+/)
+  .filter(w => w && !LINK_WORDS.includes(w));
+
+/**
+ * Whether a search hit is the place a stop names, or only shares a word with
+ * it.
+ *
+ * Photon matches loosely, and an import keeps the nearest hit, so without this
+ * "Warwick North Services" looked for around Perth became an electrician
+ * called Perthshire P.A.T. Services. A hit agrees when it has the stop's first
+ * word - which keeps a chain's branch, "Travelodge" for "Travelodge Fort
+ * William" - or most of its words. What follows a comma is where the place
+ * is, not its name. Names with no Latin letters on one side or the other
+ * cannot be compared word by word, and the index's own match stands.
+ */
+export function namesAgree(query, name) {
+  const want = wordsOf(String(query || '').split(/[,，、]/)[0]);
+  const got = wordsOf(name);
+  if (!want.length || !got.length) return true;
+  const shared = want.filter(w => got.includes(w)).length;
+  return got.includes(want[0]) || shared * 2 > want.length;
+}
+
+/**
+ * The imported stops still waiting to be found on the map: [{ day, item, city }].
+ *
+ * The lookup takes a minute or two on a free server, which is long enough to
+ * be cut short by a reload, a pull from the shared copy or a server having a
+ * bad afternoon. So an imported place carries `find`, the city to look for it
+ * in, until a search has actually answered, and whoever opens the trip next
+ * carries on from there.
+ */
+export function pendingLookups(days) {
+  return days.flatMap(day => day.items
+    .filter(it => typeof it.find === 'string' && !isPlace(it))
+    .map(item => ({ day, item, city: item.find || day.city })));
+}
+
+/**
  * A day-by-day plan out of a spreadsheet: one row per stop.
  *
  * The first sheet with a Day column and a Place or Activity column is the
@@ -1133,8 +1220,10 @@ export function densest(groups, km = 150) {
  * link, a start written as words - goes into its notes under the sheet's own
  * header.
  *
- * Returns { days, lookups: [{ day, item, city }], stops, warnings }, and throws
- * when no sheet looks like a plan.
+ * A place without coordinates is marked `find` with the city to look for it
+ * in, for `pendingLookups()`.
+ *
+ * Returns { days, stops, warnings }, and throws when no sheet looks like a plan.
  */
 export function importPlan(sheets) {
   let sheet, at = -1, cols;
@@ -1214,7 +1303,6 @@ export function importPlan(sheets) {
     return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
   };
 
-  const lookups = [];
   const out = Array.from({ length: Math.max(...days.keys()) }, (_, k) => {
     const rows = days.get(k + 1)?.rows || [];
     const day = {
@@ -1225,8 +1313,8 @@ export function importPlan(sheets) {
       timeZone: '', start: startOf(rows.map(r => r.item)), end: '',
       items: rows.map(r => r.item), legs: [],
     };
-    for (const r of rows) if (r.find) lookups.push({ day, item: r.item, city: r.city || day.city });
+    for (const r of rows) if (r.find) r.item.find = r.city || day.city;
     return day;
   });
-  return { days: out, lookups, stops: out.reduce((n, d) => n + d.items.length, 0), warnings };
+  return { days: out, stops: out.reduce((n, d) => n + d.items.length, 0), warnings };
 }
