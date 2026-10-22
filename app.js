@@ -261,8 +261,13 @@ async function recalc() {
         d.legs[from] = leg;          // keyed by origin index, matching scheduleDay
         if (leg) t = new Date(t.getTime() + leg.seconds * 1000);
       } catch (e) {
-        d.legs[from] = null;
+        // No answer is not "nothing runs". Stored as null it read "no route"
+        // and was never asked again; left unasked, opening the day asks again.
+        // And the rest wait for then too, rather than each queueing behind a
+        // server that is not answering.
         console.warn('routing failed', e);
+        toast(`The route planner did not answer, so this day is missing some legs. Open the day again to try them. (${e.message})`, '');
+        break;
       }
       save();          // keep partial results if a later leg fails
       renderPlan();
@@ -2524,7 +2529,7 @@ async function importFile(file) {
  * grown outward from there a city at a time, and every place is looked up
  * near its city. A miss stays a free-form entry rather than becoming a guess;
  * picking it from search places it. Three requests at a time, and a lookup
- * given up on after 45 seconds: Photon is free and some afternoons slow, and
+ * given up on after 20 seconds: Photon is free and some afternoons slow, and
  * one stuck answer must not hold up the rest.
  *
  * It works from the stops still marked `find`, not from the import, so a run
@@ -2545,8 +2550,16 @@ async function findPending() {
   const lookups = pendingLookups(days);
   if (!lookups.length) return;
   const lang = state.placeLang === 'local' ? null : 'en';
-  const limit = () => AbortSignal.timeout(45000);
-  let found = 0, unreached = 0;
+  const limit = () => AbortSignal.timeout(20000);
+  let found = 0, unreached = 0, strikes = 0;
+  // Three requests in a row with no answer means the search is down rather
+  // than slow, and waiting out every remaining stop held "working…" up for
+  // minutes. The marks stay, so the next run picks them up.
+  const ask = async fn => {
+    if (strikes >= 3) throw new Error('the map search is not answering');
+    try { const out = await fn(); strikes = 0; return out; }
+    catch (err) { strikes++; throw err; }
+  };
   setBusy(1);
   toast(`Looking up ${plural(lookups.length, 'place')} on the map. On a slow day this takes a minute or two.`, '');
   try {
@@ -2556,7 +2569,7 @@ async function findPending() {
     const names = cityNames.length > 1 ? cityNames
       : [...new Set([...cityNames, ...lookups.map(l => l.item.name)])].slice(0, 8);
     const failed = new Set();
-    const groups = await eachLimit(names, 3, q => search(q, { limit: 8, lang }, limit())
+    const groups = await eachLimit(names, 3, q => ask(() => search(q, { limit: 8, lang }, limit()))
       .catch(() => { failed.add(q); return []; }));
     if (state.days !== days) return;              // replaced meanwhile; the marks went with it
     const anchor = densest(groups);
@@ -2585,7 +2598,7 @@ async function findPending() {
       if (failed.has(city)) { unreached++; return; }   // nowhere to look yet
       const near = cities.get(city) || cities.get(d.city) || anchor;
       let hit;
-      try { hit = await findPlace(item.name, { near, lang }, limit()); }
+      try { hit = await ask(() => findPlace(item.name, { near, lang }, limit())); }
       catch { unreached++; return; }                    // no answer is not "not there"
       if (state.days !== days) return;
       delete item.find;

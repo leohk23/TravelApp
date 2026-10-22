@@ -171,7 +171,10 @@ sitting between two stops does not break the leg between those stops.
 `legs` is derived — `recalc()` rebuilds it — but persisted so a reload does not
 re-hit the routing service. It is keyed by the **origin item index**, not by
 position, and is sparse. `legs[i] === null` means nothing runs between those two
-places.
+places, and only an answer may say so: a request that fails or times out leaves
+the leg unasked, so opening the day asks again, and stops the rest of that
+day's routing rather than queueing each leg behind a server that is not
+answering.
 
 Days used to store `pois`; the loader migrates that to `items` on read.
 
@@ -306,6 +309,13 @@ Nominatim and Transitous are volunteer-run. Debounce, cache, throttle. Both
 return **403 to Node's default User-Agent**, so `providers.js` cannot be
 exercised from a Node script — verify it in a browser.
 
+**Every request has a time limit.** `getJSON()` gives up after 30 seconds
+unless the caller brings its own signal, and `syncFetch()` after 60. These
+servers answer in a second or two, but not always: Open-Meteo once took 66
+seconds over a request it usually answers in half a second, and with no limit
+that held "working…" up for minutes. An import gives each search 20 seconds
+and stops after three in a row go unanswered, keeping the marks for next time.
+
 `openHours()` reads OSM's `opening_hours` tag for one weekday and answers with
 the day's open windows, `[]` for shut all day, or **null when the tag says
 something it cannot read** — public holidays, seasons, sunset, week numbers.
@@ -335,6 +345,13 @@ served the previous build for one extra reload after every deploy, which meant
 bugs got reported against code that no longer existed. Large reference data
 under `data/` is stale-while-revalidate, and map tiles stay cache-first with a
 400-entry cap.
+
+From any other site, **only the version-pinned Leaflet files are cached**.
+Everything else goes straight to the network. It used to be the other way
+round, with a list of live services exempted, and the sync service was not on
+the list: its GET was cached like a library, so every pull got the first copy
+of the trip ever pulled. Bump `VERSION` when a cache may hold something wrong,
+as v73 did to clear those, because activate deletes every older cache.
 
 ## Deploying
 

@@ -7,7 +7,7 @@
 // were being reported against code that no longer existed.
 //
 // VERSION still names the cache so an old one can be cleared on activate.
-const VERSION = 'v72';
+const VERSION = 'v73';         // v73 clears sync answers v72 and before cached as if they were code
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles-v1';
 const MAX_TILES = 400;          // roughly a city at a couple of zoom levels
@@ -17,15 +17,10 @@ const LOCAL = [
   './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png',
   './data/airports.json', './data/fares.json', './data/mtr-fares.json', './data/demo.json',
 ];
-const CDN = [
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-];
-
-// Live lookups. Never cached: a stale timetable is worse than an honest error.
-const LIVE = new Set([
-  'photon.komoot.io', 'nominatim.openstreetmap.org', 'api.transitous.org', 'api.open-meteo.com',
-]);
+// The one thing from another site that is safe to keep forever: it is pinned
+// by version, so the same URL is always the same file.
+const PINNED = 'https://unpkg.com/leaflet@1.9.4/';
+const CDN = [`${PINNED}dist/leaflet.css`, `${PINNED}dist/leaflet.js`];
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
@@ -50,7 +45,6 @@ self.addEventListener('fetch', e => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  if (LIVE.has(url.hostname)) return;                       // straight to the network
   if (url.hostname === 'tile.openstreetmap.org') return e.respondWith(tile(request));
 
   if (url.origin === location.origin) {
@@ -61,7 +55,11 @@ self.addEventListener('fetch', e => {
       : networkFirst(request));
   }
 
-  e.respondWith(shellFirst(request));   // pinned CDN files, safe to cache forever
+  // Everything else from another site is live and goes straight to the
+  // network: lookups, routing, and the sync service. Caching every other site
+  // by default once kept the first copy of a shared trip ever pulled and
+  // handed it back for every pull after, whatever had been saved since.
+  if (url.href.startsWith(PINNED)) e.respondWith(shellFirst(request));
 });
 
 /** Always the deployed version when online; the cached one when not. */

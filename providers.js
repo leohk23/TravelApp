@@ -19,8 +19,23 @@ import { matchAirports, strandedStop, fmtKm, namesAgree } from './logic.js';
 
 const num = v => (typeof v === 'number' ? v : Number(v));
 
-async function getJSON(url, signal) {
-  const r = await fetch(url, { signal, headers: { accept: 'application/json' } });
+/**
+ * How long a lookup may take before it counts as no answer. These servers
+ * answer in a second or two, and one that has not answered in this long is
+ * not going to: with no limit at all, Open-Meteo taking 66 seconds over a
+ * request it usually answers in half a second held "working…" up for minutes.
+ * A caller with its own signal - type-ahead, an import - sets its own.
+ */
+const PATIENCE = 30000;
+
+async function getJSON(url, signal = AbortSignal.timeout(PATIENCE)) {
+  let r;
+  try {
+    r = await fetch(url, { signal, headers: { accept: 'application/json' } });
+  } catch (err) {
+    if (err.name === 'TimeoutError') throw new Error(`${new URL(url).hostname} did not answer`);
+    throw err;
+  }
   if (!r.ok) throw new Error(`${new URL(url).hostname} returned ${r.status}`);
   return r.json();
 }
@@ -212,12 +227,13 @@ export async function openingHours(osmId, signal) {
  * this off the shared getJSON(), which sends an Accept header for everyone
  * else.
  */
-async function syncFetch(url, init, signal) {
+async function syncFetch(url, init, signal = AbortSignal.timeout(2 * PATIENCE)) {
   let r;
   try {
     r = await fetch(url, { ...init, signal });
   } catch (err) {
     if (err.name === 'AbortError') throw err;
+    if (err.name === 'TimeoutError') throw new Error('the sync service did not answer. Try again in a minute');
     // fetch rejects rather than returning a status when the browser refuses
     // the response outright, which for this service means one of two things.
     throw new Error(
